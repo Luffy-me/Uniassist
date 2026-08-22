@@ -1,0 +1,18 @@
+[
+  {
+    "query": "How can I request academic leave?",
+    "expected_title": "Academic Leave Regulation"
+  },
+  {
+    "query": "What happens if I miss an exam?",
+    "expected_title": "Exam Regulation"
+  },
+  {
+    "query": "How do I apply for a dormitory?",
+    "expected_title": "Student Residence Regulation"
+  },
+  {
+    "query": "When is tuition due?",
+    "expected_title": "Tuition Regulation"
+  }
+]

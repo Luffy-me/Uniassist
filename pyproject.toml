@@ -1,0 +1,40 @@
+[project]
+name = "uniassist"
+version = "0.1.0"
+description = "University assistant pipeline: scrape, process, and serve knowledge."
+requires-python = ">=3.11"
+dependencies = [
+    "scrapy>=2.11",
+    "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.9",
+    "python-telegram-bot>=21.0,<23",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+    "integration: optional tests requiring external services",
+    "nvidia: requires NVIDIA NIM",
+    "telegram: requires Telegram bot token",
+    "network: requires network access",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

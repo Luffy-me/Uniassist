@@ -1,0 +1,7 @@
+Tuition and Payment Rules (TEST FIXTURE)
+
+Tuition payments must be made according to the deadlines specified by the university.
+
+Late payments may result in enrollment restrictions until the outstanding balance is settled.
+
+Students may request a payment plan by submitting a formal application to the finance office before the payment deadline.

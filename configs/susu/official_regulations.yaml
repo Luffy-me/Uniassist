@@ -1,0 +1,75 @@
+# SUSU official regulations source profile (Phase 2)
+# Passed into the generic ScrapeAI engine — no SUSU logic in core modules.
+
+name: susu-official-regulations
+
+seed_urls:
+  # Main official documents page (charter, student rules, education LNA)
+  - https://www.susu.ru/ru/university/official/documents
+  # Extended list of local regulations by educational activity (FGOS)
+  - https://k.susu.ru/index.php/lokalnye-normativnye-akty
+
+allowed_domains:
+  - susu.ru
+
+respect_robots: true
+
+# www.susu.ru robots.txt specifies Crawl-delay: 10
+request_delay: 10.0
+
+max_pages: 100
+
+allowed_content_types:
+  - application/pdf
+  - application/msword
+  - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+
+inclusion_keywords:
+  # Student-facing regulations and educational process
+  - обучающ
+  - студент
+  - приём
+  - прием
+  - перевод
+  - отчислен
+  - восстановлен
+  - академическ
+  - аттестац
+  - успеваемост
+  - государственн
+  - итогов
+  - образовательн
+  - учебн
+  - практик
+  - стажиров
+  - дистанцион
+  - электронн
+  - правила внутреннего распорядка обучающихся
+  - выпускн
+  - диплом
+  - магистр
+  - бакалавр
+  - специалитет
+  - аспирант
+  - зачетн
+  - сесс
+  - стипенд
+  - общежит
+
+exclusion_keywords:
+  # Non-target staff/administrative documents
+  - устав
+  - коллективн
+  - оплате труда
+  - работник
+  - сотрудник
+  - педагогическ
+  - профессорско
+  - научных работник
+  - охране труда
+  - материальной помощи работникам
+  - трудов
+  - конкурс на замещение
+  - персональн
+  - егрюл
+  - лицензи

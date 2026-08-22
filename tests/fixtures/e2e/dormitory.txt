@@ -1,0 +1,7 @@
+Dormitory Accommodation Policy (TEST FIXTURE)
+
+Students may apply for university dormitory accommodation through the designated application procedure.
+
+Applications are accepted at the beginning of each academic year. Priority is given to first-year students and those living outside the city.
+
+The housing office assigns rooms based on availability and the order of approved applications.
