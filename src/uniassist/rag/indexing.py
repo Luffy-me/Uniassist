@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from uniassist.documents.models import DocumentRecord, DocumentStatus, VerificationState
-from uniassist.documents.store import DocumentStore, JsonDocumentStore
+from uniassist.documents.store import DocumentStore
 from uniassist.processing.models import ProcessingStatus
 from uniassist.processing.store import ProcessingStore
 from uniassist.rag.chunking import chunk_document
@@ -77,6 +77,7 @@ class IndexingService:
         require_eligibility: bool = True,
         metadata_path: Path | None = None,
         manifest_path: Path | None = None,
+        manifest_store: IndexManifestStore | None = None,
     ) -> None:
         self._document_store = document_store
         self._processing_store = processing_store
@@ -85,9 +86,12 @@ class IndexingService:
         self._chunk_config = chunk_config or ChunkConfig()
         self._require_eligibility = require_eligibility
         self._metadata_path = metadata_path
-        self._manifest_store = (
-            IndexManifestStore(manifest_path) if manifest_path is not None else None
-        )
+        if manifest_store is not None:
+            self._manifest_store = manifest_store
+        elif manifest_path is not None:
+            self._manifest_store = IndexManifestStore(manifest_path)
+        else:
+            self._manifest_store = None
 
     @property
     def vector_store(self) -> VectorStore:
@@ -109,21 +113,17 @@ class IndexingService:
         require_eligibility: bool = True,
         embedding_provider: EmbeddingProvider | None = None,
     ) -> IndexingService:
+        from uniassist.persistence.factory import build_persistence
+
         root = project_root or Path.cwd()
-        rag_dir = root / "data" / "metadata" / "rag"
+        persistence = build_persistence(root)
         return cls(
-            document_store=JsonDocumentStore(
-                raw_dir=root / "data" / "raw",
-                index_path=root / "data" / "metadata" / "documents.json",
-            ),
-            processing_store=ProcessingStore(
-                processed_dir=root / "data" / "processed",
-                index_path=root / "data" / "metadata" / "processing.json",
-            ),
-            vector_store=JsonVectorStore(rag_dir / "index.json"),
+            document_store=persistence.document_store,
+            processing_store=persistence.processing_store,
+            vector_store=persistence.vector_store,
             embedding_provider=embedding_provider,
-            metadata_path=rag_dir / "documents.json",
-            manifest_path=rag_dir / "index_manifest.json",
+            metadata_path=persistence.rag_metadata_path,
+            manifest_store=persistence.manifest_store,
             require_eligibility=require_eligibility,
         )
 

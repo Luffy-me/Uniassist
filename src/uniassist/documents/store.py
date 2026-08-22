@@ -9,11 +9,6 @@ from typing import Protocol
 
 from uniassist.core.hashing import sha256_hex
 from uniassist.documents.models import DocumentRecord
-from uniassist.documents.validation import sanitize_filename
-
-
-class StorageConflictError(Exception):
-    """Raised when stored content would overwrite a different file."""
 
 
 class DocumentStore(Protocol):
@@ -37,6 +32,12 @@ class DocumentStore(Protocol):
     def list_records(self) -> list[DocumentRecord]:
         """Return all records in stable upload order."""
 
+    def blob_exists(self, record: DocumentRecord) -> bool:
+        """Return whether the record's blob is available."""
+
+    def read_blob(self, record: DocumentRecord) -> bytes:
+        """Read the record's blob bytes."""
+
 
 class JsonDocumentStore:
     """Filesystem blob store with a JSON metadata index."""
@@ -45,9 +46,16 @@ class JsonDocumentStore:
         self,
         raw_dir: Path,
         index_path: Path,
+        *,
+        blob_store: object | None = None,
     ) -> None:
         self.raw_dir = raw_dir
         self.index_path = index_path
+        if blob_store is None:
+            from uniassist.persistence.blob_store import LocalBlobStore
+
+            blob_store = LocalBlobStore(raw_dir)
+        self._blob_store = blob_store
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.index_path.exists():
@@ -55,22 +63,8 @@ class JsonDocumentStore:
 
     def save_blob(self, content: bytes, filename: str) -> Path:
         digest = sha256_hex(content)
-        existing = self._path_for_hash(digest)
-        if existing is not None:
-            return existing
-
-        safe_name = sanitize_filename(filename)
-        destination = self.raw_dir / f"{digest}__{safe_name}"
-        if destination.exists():
-            existing_hash = sha256_hex(destination.read_bytes())
-            if existing_hash != digest:
-                raise StorageConflictError(
-                    f"refusing to overwrite {destination} with different content"
-                )
-            return destination
-
-        destination.write_bytes(content)
-        return destination
+        blob_ref = self._blob_store.save(content, filename, digest=digest)
+        return Path(blob_ref)
 
     def find_by_sha256(self, digest: str) -> DocumentRecord | None:
         for record in self.list_records():
@@ -113,11 +107,13 @@ class JsonDocumentStore:
         data = json.loads(self.index_path.read_text(encoding="utf-8"))
         return [DocumentRecord.from_dict(item) for item in data]
 
-    def _path_for_hash(self, digest: str) -> Path | None:
-        for path in self.raw_dir.glob(f"{digest}__*"):
-            if sha256_hex(path.read_bytes()) == digest:
-                return path
-        return None
+    def blob_exists(self, record: DocumentRecord) -> bool:
+        ref = record.storage_ref or str(record.local_path)
+        return self._blob_store.exists(ref)
+
+    def read_blob(self, record: DocumentRecord) -> bytes:
+        ref = record.storage_ref or str(record.local_path)
+        return self._blob_store.read(ref)
 
     def _write_index(self, records: list[DocumentRecord]) -> None:
         payload = [record.to_dict() for record in records]

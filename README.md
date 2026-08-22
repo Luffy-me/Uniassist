@@ -100,7 +100,8 @@ Uniassist/
 | 7 | FastAPI application API | Done |
 | 8 | Admin document UI | Done |
 | 9 | Telegram bot | Done |
-| 10 | MAX integration | Not started |
+| 10 | Appwrite Cloud persistence | Done |
+| 11 | MAX integration | Not started |
 
 ## Getting started
 
@@ -373,7 +374,7 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-The frontend reads `VITE_API_BASE_URL` from `frontend/.env` (default: `http://127.0.0.1:8001`). Restart `npm run dev` after changing frontend environment variables.
+The frontend reads `VITE_API_URL` (or `VITE_API_BASE_URL`) from `frontend/.env` (default: `http://127.0.0.1:8001`). Restart `npm run dev` after changing frontend environment variables.
 
 The UI consumes the Phase 7 API only. FastAPI remains the single source of truth for lifecycle, validation, and processing.
 
@@ -600,6 +601,38 @@ pytest tests/telegram/test_telegram_integration.py -v
 7. Send rapid repeated questions to trigger rate limiting.
 
 Webhooks, Redis, and student document uploads are intentionally out of scope for Phase 9.
+
+### Phase 10 — Appwrite Cloud persistence
+
+UniAssist can run with local filesystem persistence (default) or Appwrite Cloud for production.
+
+**Backend selection**
+
+```bash
+# Local development / tests (default)
+UNIASSIST_STORAGE_BACKEND=local
+
+# Production
+UNIASSIST_STORAGE_BACKEND=appwrite
+# plus APPWRITE_* variables — see docs/appwrite.md
+```
+
+**Migration from local data**
+
+```bash
+python -m uniassist.migrations.appwrite --dry-run
+python -m uniassist.migrations.appwrite
+```
+
+**Optional live Appwrite integration tests**
+
+```bash
+export UNIASSIST_RUN_APPWRITE_INTEGRATION=1
+# configure APPWRITE_* credentials
+pytest tests/integration/appwrite -v
+```
+
+Full setup guide: [`docs/appwrite.md`](docs/appwrite.md). Filesystem audit: [`docs/persistence-audit.md`](docs/persistence-audit.md).
 
 ### Run tests
 

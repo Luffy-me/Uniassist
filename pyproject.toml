@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8", "httpx>=0.27"]
+appwrite = ["appwrite>=6.0.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -30,6 +31,7 @@ markers = [
     "nvidia: requires NVIDIA NIM",
     "telegram: requires Telegram bot token",
     "network: requires network access",
+    "appwrite: requires Appwrite Cloud credentials",
 ]
 
 [tool.ruff]

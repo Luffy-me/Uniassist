@@ -5,13 +5,35 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tests.api.conftest import LEAVE_TEXT
+from uniassist.ai.pipeline import AnswerPipeline
+from uniassist.ai.providers.mock import MockLLMProvider
 from uniassist.api.app import create_app
 from uniassist.api.dependencies import build_services, load_settings
+from uniassist.persistence.factory import build_persistence
+from uniassist.rag.indexing import IndexingService
 
 
-def test_indexed_document_is_visible_to_pipeline_retriever(project_root) -> None:
+def test_indexed_document_is_visible_to_pipeline_retriever(
+    project_root,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("UNIASSIST_EMBEDDING_PROVIDER", "deterministic")
     settings = load_settings(project_root)
-    services = build_services(settings)
+    persistence = build_persistence(project_root)
+    indexing = IndexingService(
+        document_store=persistence.document_store,
+        processing_store=persistence.processing_store,
+        vector_store=persistence.vector_store,
+        metadata_path=persistence.rag_metadata_path,
+        manifest_store=persistence.manifest_store,
+        require_eligibility=True,
+    )
+    pipeline = AnswerPipeline.from_indexing(
+        indexing,
+        project_root,
+        provider=MockLLMProvider(),
+    )
+    services = build_services(settings, pipeline=pipeline)
     client = TestClient(create_app(settings=settings, services=services))
 
     uploaded = client.post(

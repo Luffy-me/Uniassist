@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from uniassist.core.hashing import sha256_hex
 from uniassist.documents.models import DocumentRecord, DocumentStatus, VerificationState
-from uniassist.documents.store import DocumentStore, JsonDocumentStore
+from uniassist.documents.store import DocumentStore
 from uniassist.processing.models import (
     NormalizedDocument,
     ProcessingResult,
@@ -54,18 +53,13 @@ class DocumentProcessingService:
         *,
         require_eligibility: bool = True,
     ) -> DocumentProcessingService:
+        from uniassist.persistence.factory import build_persistence
+
         root = project_root or Path.cwd()
-        document_store = JsonDocumentStore(
-            raw_dir=root / "data" / "raw",
-            index_path=root / "data" / "metadata" / "documents.json",
-        )
-        processing_store = ProcessingStore(
-            processed_dir=root / "data" / "processed",
-            index_path=root / "data" / "metadata" / "processing.json",
-        )
+        persistence = build_persistence(root)
         return cls(
-            document_store=document_store,
-            processing_store=processing_store,
+            document_store=persistence.document_store,
+            processing_store=persistence.processing_store,
             require_eligibility=require_eligibility,
         )
 
@@ -83,20 +77,21 @@ class DocumentProcessingService:
         if self._require_eligibility:
             self._ensure_eligible(record)
 
-        if not record.local_path.exists():
+        if not self._document_store.blob_exists(record):
             return self._save_result(
                 self._failed_result(
                     document_id=record.document_id,
                     processor="none",
                     input_path=record.local_path,
                     source_sha256=record.sha256,
-                    error=f"source file not found: {record.local_path}",
+                    error="source file not found for document",
                 )
             )
 
+        input_path = self._materialize_input(record)
         suffix = Path(record.filename).suffix.lower()
         if suffix == ".docx":
-            return self._save_result(self._process_docx(record))
+            return self._save_result(self._process_docx(record, input_path=input_path))
 
         try:
             processor = self._router.select(record)
@@ -110,7 +105,7 @@ class DocumentProcessingService:
                 document_id=record.document_id,
                 status=ProcessingStatus.PROCESSING,
                 processor=processor.name,
-                input_path=record.local_path,
+                input_path=input_path,
                 output_path=None,
                 processed_at=datetime.now(UTC),
                 source_sha256=record.sha256,
@@ -122,17 +117,21 @@ class DocumentProcessingService:
             record.document_id,
             record.sha256,
         )
-        context = ProcessorContext(record=record, output_dir=output_dir)
+        context = ProcessorContext(
+            record=record,
+            output_dir=output_dir,
+            input_path=input_path,
+        )
         try:
             normalized = processor.process(context)
             output_path = self._processing_store.save_normalized(normalized)
-            content_hash = sha256_hex(output_path.read_bytes())
+            content_hash = sha256_hex(self._read_output_bytes(output_path))
             return self._save_result(
                 ProcessingResult(
                     document_id=record.document_id,
                     status=ProcessingStatus.COMPLETED,
                     processor=processor.name,
-                    input_path=record.local_path,
+                    input_path=input_path,
                     output_path=output_path,
                     processed_at=datetime.now(UTC),
                     source_sha256=record.sha256,
@@ -145,7 +144,7 @@ class DocumentProcessingService:
                 self._failed_result(
                     document_id=record.document_id,
                     processor=processor.name,
-                    input_path=record.local_path,
+                    input_path=input_path,
                     source_sha256=record.sha256,
                     error=str(exc),
                 )
@@ -155,7 +154,7 @@ class DocumentProcessingService:
                 self._failed_result(
                     document_id=record.document_id,
                     processor=processor.name,
-                    input_path=record.local_path,
+                    input_path=input_path,
                     source_sha256=record.sha256,
                     error=str(exc),
                 )
@@ -171,17 +170,20 @@ class DocumentProcessingService:
         record = self._document_store.get(document_id)
         if record is None:
             return None
-        path = (
-            self._processing_store.output_dir_for(record.document_id, record.sha256)
-            / "normalized.json"
-        )
-        if not path.exists():
+        try:
+            return self._processing_store.load_normalized(
+                record.document_id,
+                record.sha256,
+            )
+        except FileNotFoundError:
             return None
-        return NormalizedDocument.from_dict(
-            json.loads(path.read_text(encoding="utf-8"))
-        )
 
-    def _process_docx(self, record: DocumentRecord) -> ProcessingResult:
+    def _process_docx(
+        self,
+        record: DocumentRecord,
+        *,
+        input_path: Path,
+    ) -> ProcessingResult:
         status = self._router.docx_status(record)
         if status == "mineru_docx_available":
             processor = MinerUProcessor()
@@ -191,6 +193,7 @@ class DocumentProcessingService:
                     record.document_id,
                     record.sha256,
                 ),
+                input_path=input_path,
             )
             try:
                 normalized = processor.process(context)
@@ -199,18 +202,18 @@ class DocumentProcessingService:
                     document_id=record.document_id,
                     status=ProcessingStatus.COMPLETED,
                     processor=processor.name,
-                    input_path=record.local_path,
+                    input_path=input_path,
                     output_path=output_path,
                     processed_at=datetime.now(UTC),
                     source_sha256=record.sha256,
-                    content_hash=sha256_hex(output_path.read_bytes()),
+                    content_hash=sha256_hex(self._read_output_bytes(output_path)),
                     processor_version=normalized.processor_version,
                 )
             except Exception as exc:
                 return self._failed_result(
                     document_id=record.document_id,
                     processor=processor.name,
-                    input_path=record.local_path,
+                    input_path=input_path,
                     source_sha256=record.sha256,
                     error=str(exc),
                 )
@@ -283,6 +286,29 @@ class DocumentProcessingService:
             source_sha256=record.sha256,
             error=error,
         )
+
+    def _materialize_input(self, record: DocumentRecord) -> Path:
+        if record.local_path.exists():
+            return record.local_path
+        workspace = self._processing_store.output_dir_for(
+            record.document_id,
+            record.sha256,
+        )
+        input_path = workspace / record.filename
+        input_path.write_bytes(self._document_store.read_blob(record))
+        return input_path
+
+    def _read_output_bytes(self, output_path: Path) -> bytes:
+        if str(output_path).startswith("appwrite://"):
+            from uniassist.persistence.appwrite_blob_store import AppwriteBlobStore
+
+            if isinstance(self._processing_store, object) and hasattr(
+                self._processing_store, "_artifact_store"
+            ):
+                store = getattr(self._processing_store, "_artifact_store")
+                if isinstance(store, AppwriteBlobStore):
+                    return store.read(str(output_path))
+        return output_path.read_bytes()
 
     def _processor_version(self, processor: object) -> str | None:
         if getattr(processor, "name", None) == "text":

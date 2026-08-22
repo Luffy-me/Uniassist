@@ -16,6 +16,7 @@ from uniassist.ai.providers.nvidia_config import (
 )
 from uniassist.api.dependencies import RequestIdDep, ServicesDep
 from uniassist.api.schemas import HealthResponse, StatusResponse
+from uniassist.persistence.config import AppwriteConfig, resolve_storage_backend
 
 router = APIRouter(tags=["health"])
 
@@ -53,6 +54,8 @@ def status(
         chat_model=chat_model,
         embedding_model=embedding_model,
     )
+    storage_backend = resolve_storage_backend().value
+    appwrite_configured = AppwriteConfig.try_from_env() is not None
 
     return StatusResponse(
         request_id=request_id,
@@ -70,6 +73,8 @@ def status(
         nvidia_embedding_model=embedding_model or stats.embedding_model,
         nvidia_reachable=health_status.reachable,
         nvidia_health_message=health_status.message,
+        storage_backend=storage_backend,
+        appwrite_configured=appwrite_configured,
     )
 
 

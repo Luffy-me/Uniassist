@@ -109,7 +109,7 @@ class MinerUProcessor:
     def process(self, context: ProcessorContext) -> NormalizedDocument:
         record = context.record
         mineru_output = context.output_dir / "mineru"
-        result = run_mineru(record.local_path, mineru_output)
+        result = run_mineru(context.source_path, mineru_output)
         if result.returncode != 0:
             error = (result.stderr or result.stdout or "MinerU failed").strip()
             raise RuntimeError(error)

@@ -36,6 +36,8 @@ class StatusResponse(BaseModel):
     nvidia_embedding_model: str | None = None
     nvidia_reachable: bool | None = None
     nvidia_health_message: str | None = None
+    storage_backend: str = "local"
+    appwrite_configured: bool = False
 
 
 class AskRequest(BaseModel):

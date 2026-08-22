@@ -16,6 +16,11 @@ class ProcessorContext:
 
     record: DocumentRecord
     output_dir: Path
+    input_path: Path | None = None
+
+    @property
+    def source_path(self) -> Path:
+        return self.input_path or self.record.local_path
 
 
 class DocumentProcessor(Protocol):

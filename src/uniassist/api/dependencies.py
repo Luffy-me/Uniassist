@@ -68,14 +68,29 @@ def build_services(
     pipeline: AnswerPipeline | None = None,
     processing_require_eligibility: bool = True,
 ) -> AppServices:
+    from uniassist.persistence.factory import build_persistence
+
     root = settings.project_root
-    ingestion = DocumentIngestionService.default(root)
-    processing = DocumentProcessingService.default(
-        root,
+    persistence = build_persistence(root)
+    ingestion = DocumentIngestionService(persistence.document_store)
+    processing = DocumentProcessingService(
+        document_store=persistence.document_store,
+        processing_store=persistence.processing_store,
         require_eligibility=processing_require_eligibility,
     )
-    indexing = IndexingService.default(root)
+    indexing = IndexingService(
+        document_store=persistence.document_store,
+        processing_store=persistence.processing_store,
+        vector_store=persistence.vector_store,
+        metadata_path=persistence.rag_metadata_path,
+        manifest_store=persistence.manifest_store,
+        require_eligibility=True,
+    )
     resolved_pipeline = pipeline or AnswerPipeline.from_indexing(indexing, root)
+    if pipeline is not None:
+        shared_indexing = resolved_pipeline._generation._retriever._indexing_service  # noqa: SLF001
+        if shared_indexing is not None:
+            indexing = shared_indexing
     return AppServices(
         ingestion=ingestion,
         processing=processing,

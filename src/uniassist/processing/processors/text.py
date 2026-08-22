@@ -22,7 +22,7 @@ class TextProcessor:
 
     def process(self, context: ProcessorContext) -> NormalizedDocument:
         record = context.record
-        text = record.local_path.read_text(encoding="utf-8")
+        text = context.source_path.read_text(encoding="utf-8")
         paragraphs = [part.strip() for part in text.split("\n\n") if part.strip()]
         if not paragraphs:
             paragraphs = [text.strip()] if text.strip() else [""]

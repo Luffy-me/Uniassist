@@ -14,7 +14,7 @@ from uniassist.documents.models import (
     SourceType,
     VerificationState,
 )
-from uniassist.documents.store import DocumentStore, JsonDocumentStore
+from uniassist.documents.store import DocumentStore
 from uniassist.documents.validation import validate_upload
 
 
@@ -47,12 +47,11 @@ class DocumentIngestionService:
 
     @classmethod
     def default(cls, project_root: Path | None = None) -> DocumentIngestionService:
+        from uniassist.persistence.factory import build_persistence
+
         root = project_root or Path.cwd()
-        store = JsonDocumentStore(
-            raw_dir=root / "data" / "raw",
-            index_path=root / "data" / "metadata" / "documents.json",
-        )
-        return cls(store)
+        persistence = build_persistence(root)
+        return cls(persistence.document_store)
 
     def ingest_file(self, path: Path, request: IngestRequest) -> IngestResult:
         content = path.read_bytes()
@@ -85,13 +84,18 @@ class DocumentIngestionService:
             return IngestResult(record=existing, duplicate=True)
 
         blob_path = self._store.save_blob(content, filename)
+        storage_ref = None
+        local_path = blob_path
+        if str(blob_path).startswith("appwrite://"):
+            storage_ref = str(blob_path)
+            local_path = Path(f"virtual://{digest}")
         record = DocumentRecord(
             document_id=str(uuid.uuid4()),
             title=request.title,
             filename=Path(filename).name,
             content_type=validation.content_type or "application/octet-stream",
             sha256=digest,
-            local_path=blob_path,
+            local_path=local_path,
             uploaded_at=datetime.now(UTC),
             source=request.source,
             source_type=request.source_type,
@@ -101,6 +105,7 @@ class DocumentIngestionService:
             status=DocumentStatus.DRAFT,
             verification_state=VerificationState.PENDING,
             notes=request.notes,
+            storage_ref=storage_ref,
         )
         saved = self._store.add_record(record)
         return IngestResult(record=saved, duplicate=False)
@@ -128,6 +133,7 @@ class DocumentIngestionService:
             status=DocumentStatus.ACTIVE,
             verification_state=VerificationState.VERIFIED,
             notes=record.notes,
+            storage_ref=record.storage_ref,
         )
         return self._store.update_record(updated)
 

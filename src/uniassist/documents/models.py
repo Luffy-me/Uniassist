@@ -47,6 +47,7 @@ class DocumentRecord:
     source_type: SourceType
     status: DocumentStatus
     verification_state: VerificationState
+    storage_ref: str | None = None
     source_url: str | None = None
     effective_date: date | None = None
     version: str | None = None
@@ -61,6 +62,7 @@ class DocumentRecord:
             "content_type": self.content_type,
             "sha256": self.sha256,
             "local_path": str(self.local_path),
+            "storage_ref": self.storage_ref,
             "uploaded_at": self.uploaded_at.isoformat(),
             "source": self.source,
             "source_type": self.source_type.value,
@@ -94,4 +96,5 @@ class DocumentRecord:
             status=DocumentStatus(str(data["status"])),
             verification_state=VerificationState(str(data["verification_state"])),
             notes=data.get("notes"),
+            storage_ref=data.get("storage_ref"),
         )

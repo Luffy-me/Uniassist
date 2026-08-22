@@ -13,7 +13,8 @@ from uniassist.documents.models import (
     SourceType,
     VerificationState,
 )
-from uniassist.documents.store import JsonDocumentStore, StorageConflictError
+from uniassist.documents.exceptions import StorageConflictError
+from uniassist.documents.store import JsonDocumentStore
 
 
 def _sample_record(tmp_path: Path, document_id: str, digest: str) -> DocumentRecord:
