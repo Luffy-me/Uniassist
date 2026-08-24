@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ from uniassist.processing.models import NormalizedBlock, NormalizedDocument
 from uniassist.processing.processors.base import ProcessorContext
 
 MINERU_COMMAND = "mineru"
+MINERU_EXECUTABLE_ENV = "MINERU_EXECUTABLE"
 DEFAULT_TIMEOUT_SECONDS = 600
 
 
@@ -22,12 +24,18 @@ class MinerUNotInstalledError(RuntimeError):
 
 
 def mineru_cli_path() -> str | None:
-    """Return the MinerU CLI path when installed."""
+    """Return the configured MinerU CLI path, falling back to PATH."""
+    configured_path = os.environ.get(MINERU_EXECUTABLE_ENV, "").strip()
+    if configured_path:
+        candidate = Path(configured_path).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+        return None
     return shutil.which(MINERU_COMMAND)
 
 
 def mineru_available() -> bool:
-    """Return True when the MinerU CLI is on PATH."""
+    """Return True when a configured or PATH MinerU CLI is available."""
     return mineru_cli_path() is not None
 
 
@@ -74,9 +82,17 @@ def run_mineru(
     """Invoke the MinerU CLI against a local file."""
     cli = mineru_cli_path()
     if cli is None:
+        configured_path = os.environ.get(MINERU_EXECUTABLE_ENV, "").strip()
+        configured_detail = (
+            f" {MINERU_EXECUTABLE_ENV} is set to a non-executable path: "
+            f"{configured_path}."
+            if configured_path
+            else ""
+        )
         raise MinerUNotInstalledError(
-            "MinerU is not installed. Install with: pip install 'mineru[pipeline]' "
-            "(requires Python >=3.10,<3.14) and ensure the `mineru` command is on PATH."
+            "MinerU is unavailable. Set MINERU_EXECUTABLE to a valid executable or "
+            "install it on PATH with a supported Python (>=3.10,<3.14)."
+            f"{configured_detail}"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [
@@ -128,6 +144,10 @@ class MinerUProcessor:
         )
 
     def _blocks_from_mineru_output(self, output_dir: Path) -> list[NormalizedBlock]:
+        content_lists = sorted(output_dir.rglob("*_content_list.json"))
+        if content_lists:
+            return self._blocks_from_content_list(content_lists[0])
+
         markdown_files = sorted(output_dir.rglob("*.md"))
         if not markdown_files:
             json_files = sorted(output_dir.rglob("*.json"))
@@ -151,26 +171,53 @@ class MinerUProcessor:
             raise RuntimeError("MinerU markdown output was empty")
         return blocks
 
+    def _blocks_from_content_list(self, json_path: Path) -> list[NormalizedBlock]:
+        """Normalize MinerU's structured content-list output with page provenance."""
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            raise RuntimeError("MinerU content-list output was not a JSON list")
+
+        blocks: list[NormalizedBlock] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or item.get("content") or "").strip()
+            if not text:
+                continue
+            page_index = item.get("page_idx", item.get("page_number"))
+            page_number = page_index + 1 if isinstance(page_index, int) else None
+            section = str(item.get("type") or "content")
+            blocks.append(
+                NormalizedBlock(
+                    text=text,
+                    page_number=page_number,
+                    section=section,
+                )
+            )
+        if not blocks:
+            raise RuntimeError("MinerU content-list output was empty")
+        return blocks
+
     def _blocks_from_json(self, json_path: Path) -> list[NormalizedBlock]:
         payload = json.loads(json_path.read_text(encoding="utf-8"))
         if isinstance(payload, list):
-            texts = [str(item) for item in payload if str(item).strip()]
-            return [
+            texts = [str(item).strip() for item in payload if str(item).strip()]
+            blocks = [
                 NormalizedBlock(text=text, page_number=index + 1, section="json")
                 for index, text in enumerate(texts)
             ]
+            if blocks:
+                return blocks
+            raise RuntimeError("MinerU JSON output was empty")
         if isinstance(payload, dict) and "text" in payload:
+            text = str(payload["text"]).strip()
+            if not text:
+                raise RuntimeError("MinerU JSON output was empty")
             return [
                 NormalizedBlock(
-                    text=str(payload["text"]),
+                    text=text,
                     page_number=1,
                     section="json",
                 )
             ]
-        return [
-            NormalizedBlock(
-                text=json.dumps(payload, ensure_ascii=False),
-                page_number=1,
-                section="json",
-            )
-        ]
+        raise RuntimeError("MinerU JSON output had no extractable text")

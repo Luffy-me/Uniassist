@@ -100,7 +100,15 @@ def test_missing_source_file_fails(tmp_corpus, tmp_path: Path) -> None:
     assert "source file not found" in (result.error or "")
 
 
-def test_pdf_processing_uses_mineru_and_fails_when_unavailable(tmp_corpus) -> None:
+def test_pdf_processing_uses_mineru_and_fails_when_unavailable(
+    tmp_corpus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MINERU_EXECUTABLE", raising=False)
+    monkeypatch.setattr(
+        "uniassist.processing.processors.mineru.mineru_cli_path",
+        lambda: None,
+    )
     ingestion, processing = tmp_corpus
     record = make_active_record(ingestion, FIXTURES / "sample.pdf")
     result = processing.process_document(record.document_id)
@@ -108,7 +116,7 @@ def test_pdf_processing_uses_mineru_and_fails_when_unavailable(tmp_corpus) -> No
     assert result.processor == "mineru"
     assert result.status == ProcessingStatus.FAILED
     assert result.error is not None
-    assert "MinerU is not installed" in result.error
+    assert "MinerU is unavailable" in result.error
 
 
 def test_pdf_processing_succeeds_with_mocked_mineru(tmp_corpus, tmp_path: Path) -> None:
@@ -156,7 +164,13 @@ def test_failed_mineru_preserves_raw_file(tmp_corpus) -> None:
 def test_docx_is_unsupported_when_mineru_unavailable(
     tmp_corpus,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("MINERU_EXECUTABLE", raising=False)
+    monkeypatch.setattr(
+        "uniassist.processing.processors.mineru.mineru_cli_path",
+        lambda: None,
+    )
     ingestion, processing = tmp_corpus
     docx_path = tmp_path / "sample.docx"
     docx_path.write_bytes(b"PK\x03\x04minimal docx placeholder")

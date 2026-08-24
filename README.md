@@ -152,9 +152,19 @@ python -m uniassist.processing.cli list
 
 | Source type | Processor | Notes |
 |-------------|-----------|-------|
-| PDF | MinerU | Requires `mineru` CLI (`pip install 'mineru[pipeline]'`, Python >=3.10,<3.14) |
+| PDF | MinerU | Requires MinerU (Python 3.10-3.13). Set `MINERU_EXECUTABLE` to an isolated CLI when UniAssist uses Python 3.14+. |
 | TXT | TextProcessor | Direct UTF-8 extraction, no MinerU |
 | DOCX | Deferred | Unsupported until MinerU advertises reliable DOCX support |
+
+For a Python 3.14 UniAssist environment, keep MinerU isolated and configure it
+without activating that environment for each run:
+
+```bash
+python3.12 -m venv .venv-mineru
+.venv-mineru/bin/python -m pip install --upgrade pip
+.venv-mineru/bin/python -m pip install 'mineru[pipeline]'
+MINERU_EXECUTABLE="$PWD/.venv-mineru/bin/mineru"
+```
 
 #### Normalized output format
 
