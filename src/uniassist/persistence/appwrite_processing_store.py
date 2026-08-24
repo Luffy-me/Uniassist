@@ -8,6 +8,12 @@ from pathlib import Path
 
 from uniassist.persistence.appwrite_blob_store import AppwriteBlobStore
 from uniassist.persistence.appwrite_client import AppwriteClients
+from uniassist.persistence.appwrite_paths import decode_blob_path, encode_blob_path
+from uniassist.persistence.appwrite_sdk_adapter import (
+    document_data,
+    iter_collection_documents,
+    sanitize_payload,
+)
 from uniassist.processing.models import NormalizedDocument, ProcessingResult
 
 
@@ -38,7 +44,7 @@ class AppwriteProcessingStore:
             f"{normalized.document_id}_{normalized.source_sha256}_normalized.json"
         )
         blob_ref = self._artifact_store.save(payload, filename, digest=None)
-        return Path(blob_ref)
+        return encode_blob_path(blob_ref)
 
     def load_normalized(
         self,
@@ -50,12 +56,16 @@ class AppwriteProcessingStore:
             raise FileNotFoundError(
                 f"normalized output missing for document {document_id}"
             )
-        data = json.loads(self._artifact_store.read(str(result.output_path)))
+        data = json.loads(
+            self._artifact_store.read(
+                decode_blob_path(result.output_path),
+            )
+        )
         return NormalizedDocument.from_dict(data)
 
     def save_result(self, result: ProcessingResult) -> ProcessingResult:
-        payload = result.to_dict()
-        payload["metadata_json"] = json.dumps(payload, ensure_ascii=False)
+        payload = sanitize_payload(result.to_dict())
+        payload["metadata_json"] = json.dumps(result.to_dict(), ensure_ascii=False)
         try:
             self._clients.databases.create_document(
                 database_id=self._config.database_id,
@@ -81,19 +91,24 @@ class AppwriteProcessingStore:
             )
         except Exception:
             return None
-        return _result_from_payload(payload)
+        return _result_from_payload(document_data(payload))
 
     def list_results(self) -> list[ProcessingResult]:
         response = self._clients.databases.list_documents(
             database_id=self._config.database_id,
             collection_id=self._config.processing_collection_id,
         )
-        documents = response.get("documents", [])
+        documents = iter_collection_documents(response)
         return [_result_from_payload(item) for item in documents]
 
 
 def _result_from_payload(payload: dict) -> ProcessingResult:
     if "metadata_json" in payload:
         data = json.loads(str(payload["metadata_json"]))
-        return ProcessingResult.from_dict(data)
-    return ProcessingResult.from_dict(payload)
+    else:
+        data = dict(payload)
+    output = data.get("output_path")
+    if output:
+        data = dict(data)
+        data["output_path"] = str(encode_blob_path(decode_blob_path(str(output))))
+    return ProcessingResult.from_dict(data)

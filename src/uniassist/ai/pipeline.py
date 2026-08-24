@@ -54,13 +54,9 @@ class AnswerPipeline:
             require_eligibility=True,
         )
         resolved_provider = provider or _default_provider()
-        document_store = JsonDocumentStore(
-            raw_dir=project_root / "data" / "raw",
-            index_path=project_root / "data" / "metadata" / "documents.json",
-        )
         generation = AnswerGenerationService(retriever, resolved_provider)
         verification = VerificationEngine(
-            document_store,
+            indexing.document_store,
             use_nvidia_semantic_verifier=use_nvidia_semantic_verifier,
         )
         return cls(generation, verification, resolved_provider)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -94,6 +95,7 @@ def test_appwrite_document_store_adds_metadata(appwrite_clients) -> None:
 
 
 def test_appwrite_vector_store_persists_chunks(appwrite_clients) -> None:
+    appwrite_clients.databases.list_documents.return_value = {"documents": []}
     store = AppwriteVectorStore(appwrite_clients)
     chunk = Chunk(
         chunk_id="chunk-1",
@@ -110,3 +112,29 @@ def test_appwrite_vector_store_persists_chunks(appwrite_clients) -> None:
     )
     store.add(chunk, [1.0, 0.0])
     appwrite_clients.databases.create_document.assert_called()
+
+
+def test_appwrite_vector_store_compacts_large_nvidia_vectors(appwrite_clients) -> None:
+    appwrite_clients.databases.list_documents.return_value = {"documents": []}
+    store = AppwriteVectorStore(appwrite_clients)
+    chunk = Chunk(
+        chunk_id="chunk-nvidia",
+        document_id="doc-1",
+        text="Students may request academic leave.",
+        chunk_index=0,
+        page_number=1,
+        section="1",
+        source_sha256="abc",
+        document_version="v1",
+        source="TEST",
+        source_url=None,
+        title="Rules",
+    )
+    vector = [0.123456789 if index % 2 else -0.987654321 for index in range(1024)]
+
+    store.add(chunk, vector)
+
+    payload = appwrite_clients.databases.create_document.call_args.kwargs["data"]
+    serialized = payload["embedding"]
+    assert len(serialized) < 16384
+    assert json.loads(serialized)[0] == -0.987654

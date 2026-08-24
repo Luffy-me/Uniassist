@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import io
 from dataclasses import dataclass
+
+from appwrite.input_file import InputFile
 
 from uniassist.core.hashing import sha256_hex
 from uniassist.documents.validation import sanitize_filename
 from uniassist.persistence.appwrite_client import AppwriteClients
+from uniassist.persistence.appwrite_paths import decode_blob_path, normalize_blob_ref
 from uniassist.persistence.blob_store import DocumentBlobStore
 
 
@@ -27,17 +29,17 @@ class AppwriteBlobStore:
             return blob_ref
 
         safe_name = sanitize_filename(filename)
-        payload = io.BytesIO(content)
         self.clients.storage.create_file(
             bucket_id=self.bucket_id,
             file_id=file_id,
-            file=(safe_name, payload),
+            file=InputFile.from_bytes(content, safe_name),
         )
         return blob_ref
 
     def read(self, blob_ref: str) -> bytes:
         bucket_id, file_id = _parse_blob_ref(blob_ref)
-        return self.clients.storage.get_file_download(bucket_id, file_id)
+        data = self.clients.storage.get_file_download(bucket_id, file_id)
+        return _coerce_download_bytes(data)
 
     def exists(self, blob_ref: str) -> bool:
         bucket_id, file_id = _parse_blob_ref(blob_ref)
@@ -64,6 +66,8 @@ def _blob_ref(prefix: str, bucket_id: str, file_id: str) -> str:
 
 
 def _parse_blob_ref(blob_ref: str) -> tuple[str, str]:
+    blob_ref = decode_blob_path(blob_ref)
+    blob_ref = normalize_blob_ref(blob_ref)
     if not blob_ref.startswith("appwrite://"):
         raise ValueError(f"invalid Appwrite blob reference: {blob_ref}")
     parts = blob_ref.removeprefix("appwrite://").split("/")
@@ -71,6 +75,19 @@ def _parse_blob_ref(blob_ref: str) -> tuple[str, str]:
         raise ValueError(f"invalid Appwrite blob reference: {blob_ref}")
     _, bucket_id, file_id = parts
     return bucket_id, file_id
+
+
+def _coerce_download_bytes(data: object) -> bytes:
+    """Normalize SDK download responses to raw bytes."""
+    if isinstance(data, bytes):
+        return data
+    if isinstance(data, str):
+        return data.encode("utf-8")
+    if isinstance(data, dict):
+        import json
+
+        return json.dumps(data, ensure_ascii=False).encode("utf-8")
+    raise TypeError(f"unexpected Appwrite download payload type: {type(data)!r}")
 
 
 def as_document_blob_store(store: AppwriteBlobStore) -> DocumentBlobStore:

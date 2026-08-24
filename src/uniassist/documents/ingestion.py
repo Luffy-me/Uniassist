@@ -16,6 +16,7 @@ from uniassist.documents.models import (
 )
 from uniassist.documents.store import DocumentStore
 from uniassist.documents.validation import validate_upload
+from uniassist.persistence.appwrite_paths import decode_blob_path, is_remote_blob_path
 
 
 @dataclass(frozen=True)
@@ -86,9 +87,9 @@ class DocumentIngestionService:
         blob_path = self._store.save_blob(content, filename)
         storage_ref = None
         local_path = blob_path
-        if str(blob_path).startswith("appwrite://"):
-            storage_ref = str(blob_path)
-            local_path = Path(f"virtual://{digest}")
+        if is_remote_blob_path(blob_path):
+            storage_ref = decode_blob_path(blob_path)
+            local_path = Path("uniassist-remote") / "source" / digest
         record = DocumentRecord(
             document_id=str(uuid.uuid4()),
             title=request.title,

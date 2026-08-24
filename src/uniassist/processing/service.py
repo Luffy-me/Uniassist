@@ -299,15 +299,17 @@ class DocumentProcessingService:
         return input_path
 
     def _read_output_bytes(self, output_path: Path) -> bytes:
-        if str(output_path).startswith("appwrite://"):
-            from uniassist.persistence.appwrite_blob_store import AppwriteBlobStore
+        from uniassist.persistence.appwrite_blob_store import AppwriteBlobStore
+        from uniassist.persistence.appwrite_paths import decode_blob_path
 
+        ref = decode_blob_path(output_path)
+        if ref.startswith("appwrite://"):
             if isinstance(self._processing_store, object) and hasattr(
                 self._processing_store, "_artifact_store"
             ):
                 store = getattr(self._processing_store, "_artifact_store")
                 if isinstance(store, AppwriteBlobStore):
-                    return store.read(str(output_path))
+                    return store.read(ref)
         return output_path.read_bytes()
 
     def _processor_version(self, processor: object) -> str | None:

@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 
 from uniassist.core.hashing import sha256_hex
+from uniassist.documents.exceptions import StorageConflictError
 from uniassist.documents.models import (
     DocumentRecord,
     DocumentStatus,
     SourceType,
     VerificationState,
 )
-from uniassist.documents.exceptions import StorageConflictError
 from uniassist.documents.store import JsonDocumentStore
 
 

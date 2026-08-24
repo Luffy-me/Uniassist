@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 
 from uniassist.persistence.appwrite_client import AppwriteClients
+from uniassist.persistence.appwrite_sdk_adapter import (
+    appwrite_row_id,
+    iter_collection_documents,
+    sanitize_payload,
+)
 from uniassist.rag.models import Chunk
 from uniassist.rag.vector_store import VectorStore
 
@@ -28,7 +33,7 @@ class AppwriteVectorStore(VectorStore):
             self._clients.databases.delete_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.chunks_collection_id,
-                document_id=chunk_id,
+                document_id=appwrite_row_id(chunk_id),
             )
         except Exception:
             return
@@ -47,33 +52,35 @@ class AppwriteVectorStore(VectorStore):
         super().clear()
 
     def _persist_chunk(self, chunk: Chunk, vector: list[float]) -> None:
-        payload = {
-            "chunk_id": chunk.chunk_id,
-            "document_id": chunk.document_id,
-            "text": chunk.text,
-            "chunk_index": chunk.chunk_index,
-            "page_number": chunk.page_number,
-            "section": chunk.section,
-            "source_sha256": chunk.source_sha256,
-            "document_version": chunk.document_version,
-            "source": chunk.source,
-            "source_url": chunk.source_url,
-            "title": chunk.title,
-            "embedding": json.dumps(vector),
-            "chunk_json": json.dumps(chunk.to_dict(), ensure_ascii=False),
-        }
+        payload = sanitize_payload(
+            {
+                "chunk_id": chunk.chunk_id,
+                "document_id": chunk.document_id,
+                "text": chunk.text,
+                "chunk_index": chunk.chunk_index,
+                "page_number": chunk.page_number,
+                "section": chunk.section,
+                "source_sha256": chunk.source_sha256,
+                "document_version": chunk.document_version,
+                "source": chunk.source,
+                "source_url": chunk.source_url,
+                "title": chunk.title,
+                "embedding": _serialize_vector(vector),
+                "chunk_json": json.dumps(chunk.to_dict(), ensure_ascii=False),
+            }
+        )
         try:
             self._clients.databases.create_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.chunks_collection_id,
-                document_id=chunk.chunk_id,
+                document_id=appwrite_row_id(chunk.chunk_id),
                 data=payload,
             )
         except Exception:
             self._clients.databases.update_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.chunks_collection_id,
-                document_id=chunk.chunk_id,
+                document_id=appwrite_row_id(chunk.chunk_id),
                 data=payload,
             )
 
@@ -82,7 +89,9 @@ class AppwriteVectorStore(VectorStore):
             database_id=self._config.database_id,
             collection_id=self._config.chunks_collection_id,
         )
-        for item in response.get("documents", []):
+        for item in iter_collection_documents(response):
+            if item.get("chunk_id") == "index_manifest":
+                continue
             chunk_data = json.loads(str(item.get("chunk_json", "{}")))
             if not chunk_data:
                 continue
@@ -90,3 +99,9 @@ class AppwriteVectorStore(VectorStore):
             vector = json.loads(str(item.get("embedding", "[]")))
             if vector:
                 super().add(chunk, vector)
+
+
+def _serialize_vector(vector: list[float]) -> str:
+    """Return compact JSON that fits Appwrite string attributes."""
+    compact = [round(float(value), 6) for value in vector]
+    return json.dumps(compact, separators=(",", ":"))
