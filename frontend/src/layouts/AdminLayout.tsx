@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { FileText, LayoutDashboard, Upload } from "lucide-react";
+import { StaffAuthBar } from "@/components/StaffAuthBar";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -19,6 +20,7 @@ export function AdminLayout() {
             </p>
             <h1 className="text-lg font-semibold">Admin</h1>
           </div>
+          <StaffAuthBar />
         </div>
       </header>
       <div className="mx-auto grid max-w-7xl gap-6 px-6 py-6 lg:grid-cols-[220px_1fr]">

@@ -12,7 +12,7 @@ from uniassist.ai.observability import (
     log_request_start,
     new_request_context,
 )
-from uniassist.ai.parsing import GenerationParseError
+from uniassist.ai.parsing import GenerationParseError, InsufficientEvidenceError
 from uniassist.ai.providers.base import LLMProvider
 from uniassist.rag.retrieval import Retriever
 
@@ -48,7 +48,7 @@ class AnswerGenerationService:
         retriever: Retriever,
         provider: LLMProvider,
         *,
-        top_k: int = 5,
+        top_k: int = 8,
     ) -> None:
         self._retriever = retriever
         self._provider = provider
@@ -98,6 +98,18 @@ class AnswerGenerationService:
         started = time.perf_counter()
         try:
             candidate = self._provider.generate_answer(question, evidence)
+        except InsufficientEvidenceError as exc:
+            log_request_end(
+                context,
+                verified=False,
+                failure_type=RefusalReason.NO_RELEVANT_EVIDENCE.value,
+                generation_latency_ms=(time.perf_counter() - started) * 1000,
+            )
+            return GenerationFailure(
+                reason=RefusalReason.NO_RELEVANT_EVIDENCE,
+                message=str(exc),
+                retrieval_latency_ms=retrieval.retrieval_latency_ms,
+            )
         except GenerationParseError as exc:
             log_request_end(
                 context,

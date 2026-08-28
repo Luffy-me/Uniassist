@@ -1,4 +1,4 @@
-"""NVIDIA-powered answer generation and verification."""
+"""Groq-powered answer generation and verification."""
 
 from uniassist.ai.models import (
     CandidateAnswer,

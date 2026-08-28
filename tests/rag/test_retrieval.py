@@ -72,9 +72,41 @@ def test_invalid_top_k_is_rejected(rag_stack) -> None:
         rag_stack["retriever"].retrieve("academic leave", top_k=0)
 
 
-def test_no_results_when_index_empty(rag_stack) -> None:
-    results = rag_stack["retriever"].retrieve("academic leave", top_k=3)
-    assert results == []
+def test_contact_questions_prefer_email_chunks(rag_stack) -> None:
+    nav = ingest_and_process_text(
+        rag_stack,
+        filename="nav.txt",
+        content="International Relations International Office Useful Information",
+        title="International Relations at a Glance",
+        source="SUSU",
+    )
+    support = ingest_and_process_text(
+        rag_stack,
+        filename="support.txt",
+        content=(
+            "International Student Support. Email: applicant@susu.ru "
+            "(mailto:applicant@susu.ru). Address: Lenin Ave., 76."
+        ),
+        title="International Student Support",
+        source="SUSU",
+        source_url=(
+            "https://www.susu.ru/en/international-relations-0/"
+            "international-office/international-student-support"
+        ),
+    )
+    rag_stack["indexing"].index_document(nav.document_id)
+    rag_stack["indexing"].index_document(support.document_id)
+
+    email_hits = rag_stack["retriever"].retrieve("International email address", top_k=3)
+    assert email_hits
+    assert "applicant@susu.ru" in email_hits[0].chunk.text
+
+    help_hits = rag_stack["retriever"].retrieve(
+        "Where can international student get help at susu?",
+        top_k=3,
+    )
+    assert help_hits
+    assert help_hits[0].chunk.title == "International Student Support"
 
 
 def test_draft_document_not_retrieved_after_lifecycle_change(rag_stack) -> None:

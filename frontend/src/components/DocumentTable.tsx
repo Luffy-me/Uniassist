@@ -45,6 +45,12 @@ export function DocumentTable({ documents }: DocumentTableProps) {
                 <div className="text-xs text-muted-foreground">
                   {document.filename}
                 </div>
+                {document.processing_status === "failed" &&
+                document.processing_error ? (
+                  <div className="mt-1 text-xs text-rose-700">
+                    {document.processing_error}
+                  </div>
+                ) : null}
               </td>
               <td className="px-4 py-3">
                 <StatusBadge document={document} />

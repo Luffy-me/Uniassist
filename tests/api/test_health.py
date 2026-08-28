@@ -22,21 +22,21 @@ def test_status_returns_safe_system_information(api_client: TestClient) -> None:
     payload = response.json()
     assert payload["application_version"]
     assert "request_id" in payload
-    assert "nvidia_configured" in payload
-    assert "nvidia_reachable" in payload
-    assert "nvidia_health_message" in payload
-    assert "NVIDIA_API_KEY" not in response.text
+    assert "groq_configured" in payload
+    assert "chat_provider" in payload
+    assert "GROQ_API_KEY" not in response.text
     assert "rag_available" in payload
 
 
-def test_status_reflects_nvidia_configuration(
+def test_status_reflects_groq_configuration(
     api_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("NVIDIA_API_KEY", "test-key-not-logged")
-    monkeypatch.setenv("NVIDIA_CHAT_MODEL", "meta/llama-3.1-8b-instruct")
+    monkeypatch.setenv("GROQ_API_KEY", "test-key-not-logged")
+    monkeypatch.setenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b")
     response = api_client.get("/status")
-    assert response.json()["nvidia_configured"] is True
+    assert response.json()["groq_configured"] is True
+    assert response.json()["chat_provider"] == "groq"
     assert "test-key-not-logged" not in response.text
 
 

@@ -95,6 +95,14 @@ export function DocumentDetailPage() {
               label="Processing"
               value={document.processing_status ?? "not started"}
             />
+            {document.processing_error ? (
+              <div className="md:col-span-2">
+                <MetadataItem
+                  label="Processing error"
+                  value={document.processing_error}
+                />
+              </div>
+            ) : null}
             <MetadataItem
               label="Indexed"
               value={

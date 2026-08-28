@@ -90,8 +90,10 @@ def run_mineru(
             else ""
         )
         raise MinerUNotInstalledError(
-            "MinerU is unavailable. Set MINERU_EXECUTABLE to a valid executable or "
-            "install it on PATH with a supported Python (>=3.10,<3.14)."
+            "MinerU is unavailable, so UniAssist cannot OCR scanned PDFs. "
+            "Set MINERU_EXECUTABLE to a valid executable or install it on PATH "
+            "with a supported Python (>=3.10,<3.14). Text-based PDFs can still "
+            "be processed with the built-in PDF text extractor."
             f"{configured_detail}"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +122,7 @@ class MinerUProcessor:
 
     def supports(self, record: DocumentRecord) -> bool:
         suffix = Path(record.filename).suffix.lower()
-        return suffix == ".pdf"
+        return suffix == ".pdf" and mineru_available()
 
     def process(self, context: ProcessorContext) -> NormalizedDocument:
         record = context.record

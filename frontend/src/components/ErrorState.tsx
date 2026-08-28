@@ -9,6 +9,12 @@ interface ErrorStateProps {
 }
 
 function resolveMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) {
+    return (
+      "Staff authentication required. Enter the staff secret in the admin header " +
+      "(or set VITE_ADMIN_SECRET) so it matches UNIASSIST_ADMIN_SECRET on the API."
+    );
+  }
   if (error instanceof ApiError) {
     return error.message;
   }

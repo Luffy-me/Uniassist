@@ -64,7 +64,7 @@ def test_ask_service_error_maps_to_503(
     project_root,
     mock_pipeline: MockAnswerPipeline,
 ) -> None:
-    mock_pipeline.should_raise = GenerationError("NVIDIA unavailable")
+    mock_pipeline.should_raise = GenerationError("Groq unavailable")
     services = build_test_services(project_root, mock_pipeline)
     client = TestClient(create_app(settings=services.settings, services=services))
     response = client.post("/ask", json={"question": "Can I take academic leave?"})

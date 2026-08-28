@@ -1,6 +1,8 @@
 import type { ErrorResponse } from "@/types/api";
+import { getAdminSecret } from "@/lib/adminSecret";
 
 export const REQUEST_ID_HEADER = "X-Request-ID";
+export const ADMIN_SECRET_HEADER = "X-Admin-Secret";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8001";
 
@@ -60,6 +62,10 @@ export async function apiRequest<T>(
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
+  }
+  const adminSecret = getAdminSecret();
+  if (adminSecret) {
+    headers.set(ADMIN_SECRET_HEADER, adminSecret);
   }
 
   const response = await fetch(`${getApiBaseUrl()}${path}`, {

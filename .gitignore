@@ -21,6 +21,9 @@ env/
 .vscode/
 *.swp
 .DS_Store
+.cursor/
+*.ses
+logs/
 
 # Generated data (keep directory structure via .gitkeep)
 data/raw/*
@@ -28,3 +31,4 @@ data/processed/*
 data/metadata/*
 data/metadata/rag/*
 !data/*/.gitkeep
+data/imports/

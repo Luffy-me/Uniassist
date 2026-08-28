@@ -146,7 +146,11 @@ def test_indexed_document_is_visible_to_pipeline_retriever(
 
     uploaded = client.post(
         "/documents/upload",
-        data={"title": "Academic Leave Regulations", "source": "TEST"},
+        data={
+            "title": "Academic Leave Regulations",
+            "source": "TEST",
+            "source_url": "https://example.org/leave",
+        },
         files={"file": ("leave.txt", LEAVE_TEXT.encode("utf-8"), "text/plain")},
     ).json()
     document_id = uploaded["document"]["document_id"]

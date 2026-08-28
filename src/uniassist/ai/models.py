@@ -92,8 +92,13 @@ class Citation:
     source_url: str | None
 
     def display_label(self) -> str:
-        page = f"p. {self.page_number}" if self.page_number is not None else "page n/a"
-        return f"{self.title} — {page}"
+        if self.page_number is not None:
+            location = f"p. {self.page_number}"
+        elif self.section:
+            location = f"§{self.section}"
+        else:
+            location = "page n/a"
+        return f"{self.title} — {location}"
 
 
 @dataclass(frozen=True)

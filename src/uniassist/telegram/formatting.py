@@ -8,18 +8,24 @@ from uniassist.telegram.api_client import AskResult, CitationPayload
 from uniassist.telegram.errors import REFUSAL_MESSAGE
 
 TELEGRAM_HARD_LIMIT = 4096
+SOURCES_HEADING = "Sources / Источники:"
 
 
 def format_citation(citation: CitationPayload) -> str:
     """Format one citation line without inventing metadata."""
     if citation.label.strip():
-        return f"• {citation.label.strip()}"
-    parts = [citation.title.strip() or "Document"]
-    if citation.page_number is not None:
-        parts.append(f"p. {citation.page_number}")
-    elif citation.section:
-        parts.append(f"§{citation.section}")
-    return f"• {' — '.join(parts)}"
+        line = f"• {citation.label.strip()}"
+    else:
+        parts = [citation.title.strip() or "Document"]
+        if citation.page_number is not None:
+            parts.append(f"p. {citation.page_number}")
+        elif citation.section:
+            parts.append(f"§{citation.section}")
+        line = f"• {' — '.join(parts)}"
+    source_url = (citation.source_url or "").strip()
+    if source_url:
+        return f"{line}\n  {source_url}"
+    return line
 
 
 def format_ask_result(result: AskResult) -> str:
@@ -28,12 +34,10 @@ def format_ask_result(result: AskResult) -> str:
         lines = [result.answer.strip()]
         if result.citations:
             lines.append("")
-            lines.append("Sources:")
+            lines.append(SOURCES_HEADING)
             lines.extend(format_citation(item) for item in result.citations)
         return "\n".join(lines).strip()
 
-    if result.message and result.message.strip():
-        return result.message.strip()
     return REFUSAL_MESSAGE
 
 

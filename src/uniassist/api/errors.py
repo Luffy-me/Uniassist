@@ -9,13 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from uniassist.ai.generation import GenerationError
-from uniassist.ai.providers.nvidia_exceptions import (
-    NVIDIAAPIError,
-    NVIDIAAuthenticationError,
-    NVIDIAConfigError,
-    NVIDIARateLimitError,
-    NVIDIATimeoutError,
-)
+from uniassist.ai.providers.groq import GroqAPIError, GroqConfigError
 from uniassist.processing.service import ProcessingEligibilityError
 from uniassist.rag.index_metadata import IndexCompatibilityError
 from uniassist.rag.indexing import IndexingEligibilityError
@@ -44,6 +38,10 @@ class ConflictError(Exception):
 
 class ServiceUnavailableError(Exception):
     """Upstream AI or dependency is unavailable."""
+
+
+class UnauthorizedError(Exception):
+    """Admin authentication is missing or invalid."""
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -94,6 +92,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             request,
             status_code=503,
             error="service_unavailable",
+            detail=str(exc),
+        )
+
+    @app.exception_handler(UnauthorizedError)
+    async def unauthorized_handler(
+        request: Request,
+        exc: UnauthorizedError,
+    ) -> JSONResponse:
+        return _error_response(
+            request,
+            status_code=401,
+            error="unauthorized",
             detail=str(exc),
         )
 
@@ -164,11 +174,8 @@ def map_service_exception(exc: Exception) -> Exception:
         exc,
         (
             GenerationError,
-            NVIDIAConfigError,
-            NVIDIAAuthenticationError,
-            NVIDIARateLimitError,
-            NVIDIATimeoutError,
-            NVIDIAAPIError,
+            GroqConfigError,
+            GroqAPIError,
         ),
     ):
         return ServiceUnavailableError(str(exc))

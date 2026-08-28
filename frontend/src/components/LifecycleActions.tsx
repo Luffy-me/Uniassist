@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { activateDocument, indexDocument, processDocument } from "@/api/documents";
+import {
+  activateDocument,
+  indexDocument,
+  processDocument,
+  publishDocument,
+} from "@/api/documents";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import {
   canActivate,
   canIndex,
   canProcess,
+  canPublish,
 } from "@/lib/lifecycle";
 import type { Document } from "@/types/api";
 
@@ -28,6 +34,19 @@ export function LifecycleActions({
     await queryClient.invalidateQueries({ queryKey: ["documents"] });
     await queryClient.invalidateQueries({ queryKey: ["document", documentId] });
   };
+
+  const publishMutation = useMutation({
+    mutationFn: () => publishDocument(document.document_id),
+    onSuccess: async ({ requestId }) => {
+      setError(null);
+      setLastRequestId(requestId);
+      await invalidate(document.document_id);
+      onActionComplete?.(requestId);
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof ApiError ? err : null);
+    },
+  });
 
   const activateMutation = useMutation({
     mutationFn: () => activateDocument(document.document_id),
@@ -69,6 +88,7 @@ export function LifecycleActions({
   });
 
   const pending =
+    publishMutation.isPending ||
     activateMutation.isPending ||
     processMutation.isPending ||
     indexMutation.isPending;
@@ -77,6 +97,24 @@ export function LifecycleActions({
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
         <Button
+          disabled={!canPublish(document) || pending}
+          onClick={() => {
+            if (
+              window.confirm(
+                "Publish this document? It will be activated, processed, and indexed for student answers.",
+              )
+            ) {
+              publishMutation.mutate();
+            }
+          }}
+        >
+          {publishMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : null}
+          Publish
+        </Button>
+        <Button
+          variant="outline"
           disabled={!canActivate(document) || pending}
           onClick={() => {
             if (window.confirm("Activate this document?")) {

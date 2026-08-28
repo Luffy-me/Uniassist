@@ -29,6 +29,9 @@ def telegram_config() -> TelegramConfig:
         rate_limit_per_minute=3,
         request_timeout_seconds=5.0,
         max_message_length=500,
+        network_timeout_seconds=12.0,
+        poll_timeout_seconds=8,
+        bootstrap_retries=2,
     )
 
 
@@ -66,4 +69,3 @@ def make_context(services: BotServices) -> MagicMock:
     context.bot = AsyncMock()
     context.bot.send_chat_action = AsyncMock()
     return context
-

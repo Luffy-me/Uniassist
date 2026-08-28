@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from uniassist.persistence.appwrite_client import TablesDBAdapter
 from uniassist.persistence.appwrite_paths import (
     decode_blob_path,
     encode_blob_path,
@@ -49,6 +50,34 @@ def test_iter_collection_documents_reads_document_list() -> None:
     )
     rows = iter_collection_documents(response)
     assert rows == [{"chunk_id": "chunk-1", "embedding": "[1.0]"}]
+
+
+def test_tables_db_adapter_reads_pydantic_row_list() -> None:
+    class RowList:
+        def model_dump(self, by_alias: bool = False) -> dict:
+            assert by_alias is True
+            return {
+                "total": 1,
+                "rows": [
+                    {
+                        "$id": "chunk-1",
+                        "data": {"chunk_id": "chunk-1", "embedding": "[1.0]"},
+                    }
+                ],
+            }
+
+    tables_db = SimpleNamespace(
+        list_rows=lambda database_id, table_id, queries: RowList()
+    )
+    adapter = TablesDBAdapter(tables_db)
+
+    response = adapter.list_documents("db", "chunks", queries=[])
+
+    assert response == {
+        "documents": [
+            {"$id": "chunk-1", "data": {"chunk_id": "chunk-1", "embedding": "[1.0]"}}
+        ]
+    }
 
 
 def test_sanitize_payload_removes_nulls_and_stringifies_paths() -> None:

@@ -10,12 +10,7 @@ import pytest
 
 from uniassist.ai.generation import AnswerGenerationService
 from uniassist.ai.pipeline import AnswerPipeline
-from uniassist.ai.providers.nvidia import NVIDIAProvider
-from uniassist.ai.providers.nvidia_config import (
-    check_nvidia_health,
-    resolve_api_key,
-    resolve_base_url,
-)
+from uniassist.ai.providers.groq import GroqConfigError, GroqProvider
 from uniassist.ai.verification import VerificationEngine
 from uniassist.documents.ingestion import DocumentIngestionService, IngestRequest
 from uniassist.documents.store import JsonDocumentStore
@@ -45,7 +40,7 @@ E2E_RETRIEVAL_QUERIES: tuple[tuple[str, str], ...] = (
 
 @dataclass
 class E2EStack:
-    """Fully wired test stack backed by real NVIDIA when available."""
+    """Fully wired test stack backed by Groq when available."""
 
     root: Path
     document_store: JsonDocumentStore
@@ -58,20 +53,18 @@ class E2EStack:
 
 
 def integration_enabled() -> bool:
-    return os.environ.get("UNIASSIST_RUN_NVIDIA_INTEGRATION") == "1"
+    return os.environ.get("UNIASSIST_RUN_GROQ_INTEGRATION") == "1"
 
 
-def require_nvidia_runtime() -> None:
+def require_groq_runtime() -> None:
     if not integration_enabled():
-        pytest.skip("Set UNIASSIST_RUN_NVIDIA_INTEGRATION=1 to run live E2E tests")
-    base_url = resolve_base_url()
+        pytest.skip("Set UNIASSIST_RUN_GROQ_INTEGRATION=1 to run live E2E tests")
+    if not os.environ.get("GROQ_API_KEY", "").strip():
+        pytest.skip("GROQ_API_KEY is required for live Groq E2E tests")
     try:
-        api_key = resolve_api_key(base_url)
-    except Exception as exc:
+        GroqProvider()._require_client()  # noqa: SLF001
+    except GroqConfigError as exc:
         pytest.skip(str(exc))
-    health = check_nvidia_health(base_url=base_url, api_key=api_key)
-    if not health.reachable:
-        pytest.skip(health.message or "NVIDIA NIM is not running.")
 
 
 def build_e2e_stack(tmp_path: Path) -> E2EStack:
@@ -89,7 +82,7 @@ def build_e2e_stack(tmp_path: Path) -> E2EStack:
         processed_dir=processed_dir,
         index_path=metadata_dir / "processing.json",
     )
-    embedding_provider = create_embedding_provider(prefer_nvidia=True)
+    embedding_provider = create_embedding_provider()
     vector_store = JsonVectorStore(rag_dir / "index.json")
     indexing = IndexingService(
         document_store=document_store,
@@ -130,7 +123,7 @@ def build_e2e_stack(tmp_path: Path) -> E2EStack:
         embedding_provider=embedding_provider,
         indexing_service=indexing,
     )
-    provider = NVIDIAProvider()
+    provider = GroqProvider()
     pipeline = AnswerPipeline(
         AnswerGenerationService(retriever, provider),
         VerificationEngine(document_store),

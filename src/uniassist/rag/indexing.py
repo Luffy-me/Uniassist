@@ -15,14 +15,13 @@ from uniassist.processing.models import ProcessingStatus
 from uniassist.processing.store import ProcessingStore
 from uniassist.rag.chunking import chunk_document
 from uniassist.rag.embedding_factory import create_embedding_provider
-from uniassist.rag.embeddings import EmbeddingProvider
+from uniassist.rag.embeddings import EmbeddingProvider, EmbeddingProviderInfo
 from uniassist.rag.index_metadata import (
     IndexCompatibilityError,
     IndexManifest,
     IndexManifestStore,
 )
 from uniassist.rag.models import Chunk, ChunkConfig
-from uniassist.rag.nvidia_embeddings import EmbeddingProviderInfo
 from uniassist.rag.vector_store import JsonVectorStore, VectorStore
 
 

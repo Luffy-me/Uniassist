@@ -63,7 +63,7 @@ Normalized JSON artifacts themselves are stored in the `processed` Storage bucke
 | `source` | string | no | 512 | no | Citation source label |
 | `source_url` | string | no | 2048 | no | Citation URL |
 | `title` | string | no | 512 | no | Citation title |
-| `embedding` | string | yes | 16384 | no | JSON-serialized embedding vector |
+| `embedding` | string | yes | 32768 | no | JSON-serialized embedding vector |
 | `chunk_json` | string | yes | 16384 | no | Canonical serialized `Chunk` model |
 | `manifest_json` | string | no | 16384 | no | Index manifest document (`index_manifest`) |
 

@@ -17,7 +17,7 @@ from uniassist.ai.models import (
     VerifiedAnswer,
 )
 from uniassist.ai.providers.base import LLMProvider
-from uniassist.ai.providers.nvidia import NVIDIAProvider
+from uniassist.ai.providers.groq import GroqProvider
 from uniassist.ai.verification import VerificationEngine
 from uniassist.documents.store import JsonDocumentStore
 from uniassist.rag.indexing import IndexingService
@@ -44,7 +44,6 @@ class AnswerPipeline:
         project_root: Path,
         *,
         provider: LLMProvider | None = None,
-        use_nvidia_semantic_verifier: bool = False,
     ) -> AnswerPipeline:
         """Build a pipeline that shares the API indexing service vector store."""
         retriever = Retriever(
@@ -55,10 +54,7 @@ class AnswerPipeline:
         )
         resolved_provider = provider or _default_provider()
         generation = AnswerGenerationService(retriever, resolved_provider)
-        verification = VerificationEngine(
-            indexing.document_store,
-            use_nvidia_semantic_verifier=use_nvidia_semantic_verifier,
-        )
+        verification = VerificationEngine(indexing.document_store)
         return cls(generation, verification, resolved_provider)
 
     @classmethod
@@ -67,7 +63,6 @@ class AnswerPipeline:
         project_root: Path | None = None,
         *,
         provider: LLMProvider | None = None,
-        use_nvidia_semantic_verifier: bool = False,
     ) -> AnswerPipeline:
         root = project_root or Path.cwd()
         retriever = Retriever.default(project_root=root)
@@ -77,10 +72,7 @@ class AnswerPipeline:
             index_path=root / "data" / "metadata" / "documents.json",
         )
         generation = AnswerGenerationService(retriever, resolved_provider)
-        verification = VerificationEngine(
-            document_store,
-            use_nvidia_semantic_verifier=use_nvidia_semantic_verifier,
-        )
+        verification = VerificationEngine(document_store)
         return cls(generation, verification, resolved_provider)
 
     def ask(self, question_text: str) -> VerifiedAnswer | RefusalAnswer:
@@ -154,7 +146,7 @@ class AnswerPipeline:
 
 
 def _default_provider() -> LLMProvider:
-    return NVIDIAProvider()
+    return GroqProvider()
 
 
 def _failure_result(reason: RefusalReason, message: str):
@@ -198,8 +190,9 @@ def _refusal_message(reason: RefusalReason | None) -> str:
             "to answer this question reliably."
         ),
         RefusalReason.UNSUPPORTED_CLAIM: (
-            "The generated answer contains claims that are not supported "
-            "by the retrieved evidence."
+            "I can't verify an answer to that from the currently available "
+            "university documents. Please try a more specific question or "
+            "ask the university directly."
         ),
         RefusalReason.CONTRADICTORY_EVIDENCE: (
             "The retrieved evidence contains conflicting statements that "

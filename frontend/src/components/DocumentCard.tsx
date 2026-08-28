@@ -22,6 +22,9 @@ export function DocumentCard({ document }: DocumentCardProps) {
           <p>{document.source}</p>
           <p>Version {document.version ?? "—"}</p>
           <p>Effective {formatDate(document.effective_date)}</p>
+          {document.processing_status === "failed" && document.processing_error ? (
+            <p className="text-rose-700">{document.processing_error}</p>
+          ) : null}
         </CardContent>
       </Card>
     </Link>

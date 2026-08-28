@@ -11,6 +11,7 @@ from uniassist.processing.processors.mineru import (
     mineru_available,
     mineru_supports_docx,
 )
+from uniassist.processing.processors.pdf_text import PdfTextProcessor
 from uniassist.processing.processors.text import TextProcessor
 
 
@@ -21,7 +22,11 @@ class ProcessorRouter:
         self,
         processors: list[DocumentProcessor] | None = None,
     ) -> None:
-        self._processors = processors or [MinerUProcessor(), TextProcessor()]
+        self._processors = processors or [
+            MinerUProcessor(),
+            PdfTextProcessor(),
+            TextProcessor(),
+        ]
 
     def select(self, record: DocumentRecord) -> DocumentProcessor:
         for processor in self._processors:

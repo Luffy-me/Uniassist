@@ -100,23 +100,24 @@ def test_missing_source_file_fails(tmp_corpus, tmp_path: Path) -> None:
     assert "source file not found" in (result.error or "")
 
 
-def test_pdf_processing_uses_mineru_and_fails_when_unavailable(
+def test_empty_pdf_fails_clearly_without_mineru(
     tmp_corpus,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MINERU_EXECUTABLE", raising=False)
     monkeypatch.setattr(
-        "uniassist.processing.processors.mineru.mineru_cli_path",
-        lambda: None,
+        "uniassist.processing.processors.mineru.mineru_available",
+        lambda: False,
     )
     ingestion, processing = tmp_corpus
     record = make_active_record(ingestion, FIXTURES / "sample.pdf")
     result = processing.process_document(record.document_id)
 
-    assert result.processor == "mineru"
+    assert result.processor == "pdf_text"
     assert result.status == ProcessingStatus.FAILED
     assert result.error is not None
-    assert "MinerU is unavailable" in result.error
+    assert "no extractable text" in result.error
+    assert "Install MinerU" in result.error
 
 
 def test_pdf_processing_succeeds_with_mocked_mineru(tmp_corpus, tmp_path: Path) -> None:
@@ -133,9 +134,15 @@ def test_pdf_processing_succeeds_with_mocked_mineru(tmp_corpus, tmp_path: Path) 
         completed.stderr = ""
         return completed
 
-    with patch(
-        "uniassist.processing.processors.mineru.run_mineru",
-        side_effect=fake_run_mineru,
+    with (
+        patch(
+            "uniassist.processing.processors.mineru.mineru_available",
+            return_value=True,
+        ),
+        patch(
+            "uniassist.processing.processors.mineru.run_mineru",
+            side_effect=fake_run_mineru,
+        ),
     ):
         result = processing.process_document(record.document_id)
 
@@ -151,9 +158,15 @@ def test_failed_mineru_preserves_raw_file(tmp_corpus) -> None:
     record = make_active_record(ingestion, FIXTURES / "sample.pdf")
     before = record.local_path.read_bytes()
 
-    with patch(
-        "uniassist.processing.processors.mineru.run_mineru",
-        side_effect=RuntimeError("MinerU exploded"),
+    with (
+        patch(
+            "uniassist.processing.processors.mineru.mineru_available",
+            return_value=True,
+        ),
+        patch(
+            "uniassist.processing.processors.mineru.run_mineru",
+            side_effect=RuntimeError("MinerU exploded"),
+        ),
     ):
         result = processing.process_document(record.document_id)
 
@@ -244,10 +257,17 @@ def test_processor_version_recorded_for_text(tmp_corpus) -> None:
 def test_mineru_not_installed_error_is_clear(tmp_corpus) -> None:
     ingestion, processing = tmp_corpus
     record = make_active_record(ingestion, FIXTURES / "sample.pdf")
-    with patch(
-        "uniassist.processing.processors.mineru.run_mineru",
-        side_effect=MinerUNotInstalledError("MinerU is not installed."),
+    with (
+        patch(
+            "uniassist.processing.processors.mineru.mineru_available",
+            return_value=True,
+        ),
+        patch(
+            "uniassist.processing.processors.mineru.run_mineru",
+            side_effect=MinerUNotInstalledError("MinerU is not installed."),
+        ),
     ):
         result = processing.process_document(record.document_id)
     assert result.status == ProcessingStatus.FAILED
-    assert result.error == "MinerU is not installed."
+    assert "MinerU is not installed." in (result.error or "")
+    assert "no extractable text" in (result.error or "")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from telegram.error import TimedOut
 
 from tests.telegram.conftest import make_context, make_update
 from uniassist.telegram.api_client import AskResult, CitationPayload
@@ -35,6 +36,7 @@ async def test_start_command(bot_services: BotServices) -> None:
     reply = update.effective_message.reply_text
     reply.assert_awaited_once()
     assert "Welcome to UniAssist" in reply.await_args.args[0]
+    assert "Добро пожаловать в UniAssist" in reply.await_args.args[0]
 
 
 @pytest.mark.asyncio
@@ -44,6 +46,8 @@ async def test_help_command(bot_services: BotServices) -> None:
     await help_command(update, context)
     text = update.effective_message.reply_text.await_args.args[0]
     assert "verified university documents" in text
+    assert "проверенных университетских документов" in text
+    assert "не будет догадываться" in text
 
 
 @pytest.mark.asyncio
@@ -53,6 +57,7 @@ async def test_status_command_online(bot_services: BotServices) -> None:
     context = make_context(bot_services)
     await status_command(update, context)
     assert "online" in update.effective_message.reply_text.await_args.args[0]
+    assert "работает" in update.effective_message.reply_text.await_args.args[0]
 
 
 @pytest.mark.asyncio
@@ -90,7 +95,7 @@ async def test_text_question_verified_answer(bot_services: BotServices) -> None:
                     page_number=4,
                     section=None,
                     source="TEST",
-                    source_url=None,
+                    source_url="https://example.org/leave",
                     label="Academic Leave Regulations — p. 4",
                 ),
             ),
@@ -102,7 +107,8 @@ async def test_text_question_verified_answer(bot_services: BotServices) -> None:
     await text_question(update, context)
     sent = update.effective_message.reply_text.await_args_list[-1].args[0]
     assert "Students may request academic leave." in sent
-    assert "Sources:" in sent
+    assert "Sources / Источники:" in sent
+    assert "https://example.org/leave" in sent
     session = await bot_services.session_store.get(42)
     assert session is not None
     assert session.last_request_id == "req-verified"
@@ -227,4 +233,26 @@ async def test_text_question_sends_typing_action(bot_services: BotServices) -> N
     update = make_update(text="Question?")
     context = make_context(bot_services)
     await text_question(update, context)
-    context.bot.send_chat_action.assert_awaited_once()
+    assert context.bot.send_chat_action.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_text_question_answers_when_typing_action_times_out(
+    bot_services: BotServices,
+) -> None:
+    bot_services.api_client.ask = AsyncMock(
+        return_value=AskResult(
+            request_id="req-typing-timeout",
+            status="verified",
+            answer="Answer",
+            verified=True,
+        )
+    )
+    update = make_update(text="Question?")
+    context = make_context(bot_services)
+    context.bot.send_chat_action = AsyncMock(side_effect=TimedOut("typing timed out"))
+
+    await text_question(update, context)
+
+    bot_services.api_client.ask.assert_awaited_once()
+    assert update.effective_message.reply_text.await_args.args[0] == "Answer"

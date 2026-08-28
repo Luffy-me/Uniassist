@@ -49,6 +49,122 @@ def test_supported_claim_passes_verification(ai_stack) -> None:
     assert result.supported_claims
 
 
+def test_one_chunk_can_support_multiple_claims_and_citations_deduplicate(
+    ai_stack,
+) -> None:
+    make_active_record(
+        ai_stack["document_store"],
+        document_id="doc-1",
+        title="Academic Leave Regulations",
+    )
+    evidence = [
+        make_evidence(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            title="Academic Leave Regulations",
+            text=(
+                "Students may request academic leave. Students must submit "
+                "a formal request to the academic office."
+            ),
+        )
+    ]
+    candidate = CandidateAnswer(
+        answer_text=(
+            "Students may request academic leave. A formal request must be "
+            "submitted to the academic office."
+        ),
+        claims=(
+            AnswerClaim(
+                text="Students may request academic leave.",
+                evidence_ids=("chunk-1",),
+            ),
+            AnswerClaim(
+                text="A formal request must be submitted to the academic office.",
+                evidence_ids=("chunk-1",),
+            ),
+        ),
+        evidence=tuple(evidence),
+        model="mock",
+        generated_at=datetime.now(UTC),
+    )
+    result = ai_stack["verification"].verify(
+        Question(text="How do I request academic leave?"), candidate, evidence
+    )
+    assert result.verified is True
+    assert len(result.supported_claims) == 2
+    citations = ai_stack["verification"].build_citations(candidate, evidence)
+    assert [citation.chunk_id for citation in citations] == ["chunk-1"]
+
+
+def test_one_chunk_can_support_three_claims(ai_stack) -> None:
+    make_active_record(
+        ai_stack["document_store"],
+        document_id="doc-1",
+        title="Academic Leave Regulations",
+    )
+    evidence = [
+        make_evidence(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            title="Academic Leave Regulations",
+            text=(
+                "Students may request academic leave. A formal request is "
+                "required. Submit the request to the academic office."
+            ),
+        )
+    ]
+    candidate = CandidateAnswer(
+        answer_text=(
+            "Students may request leave, file a formal request, and submit it "
+            "to the academic office."
+        ),
+        claims=(
+            AnswerClaim("Students may request academic leave.", ("chunk-1",)),
+            AnswerClaim("A formal request is required.", ("chunk-1",)),
+            AnswerClaim("Submit the request to the academic office.", ("chunk-1",)),
+        ),
+        evidence=tuple(evidence),
+        model="mock",
+        generated_at=datetime.now(UTC),
+    )
+    result = ai_stack["verification"].verify(
+        Question(text="How do I request academic leave?"), candidate, evidence
+    )
+    assert result.verified is True
+    assert len(result.supported_claims) == 3
+
+
+def test_duplicate_evidence_in_one_claim_fails_verification(ai_stack) -> None:
+    make_active_record(
+        ai_stack["document_store"], document_id="doc-1", title="Leave"
+    )
+    evidence = [
+        make_evidence(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            title="Leave",
+            text=LEAVE_TEXT,
+        )
+    ]
+    candidate = CandidateAnswer(
+        answer_text="Students may request academic leave.",
+        claims=(
+            AnswerClaim(
+                "Students may request academic leave.",
+                ("chunk-1", "chunk-1"),
+            ),
+        ),
+        evidence=tuple(evidence),
+        model="mock",
+        generated_at=datetime.now(UTC),
+    )
+    result = ai_stack["verification"].verify(
+        Question(text="Can I take academic leave?"), candidate, evidence
+    )
+    assert result.verified is False
+    assert result.refusal_reason == RefusalReason.INVALID_CITATION
+
+
 def test_unsupported_claim_fails_verification(ai_stack) -> None:
     make_active_record(
         ai_stack["document_store"],

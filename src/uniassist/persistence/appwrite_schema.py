@@ -65,7 +65,7 @@ CHUNKS_ATTRIBUTES: tuple[CollectionAttribute, ...] = (
     CollectionAttribute("source", "string", 512),
     CollectionAttribute("source_url", "string", 2048),
     CollectionAttribute("title", "string", 512),
-    CollectionAttribute("embedding", "string", 16384, required=True),
+    CollectionAttribute("embedding", "string", 32768, required=True),
     CollectionAttribute("chunk_json", "string", 16384, required=True),
     CollectionAttribute("manifest_json", "string", 16384),
 )

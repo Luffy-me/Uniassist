@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import uniassist.persistence.appwrite_vector_store as vector_store_module
 from uniassist.documents.models import (
     DocumentRecord,
     DocumentStatus,
@@ -18,6 +19,7 @@ from uniassist.documents.models import (
 from uniassist.persistence.appwrite_blob_store import AppwriteBlobStore
 from uniassist.persistence.appwrite_client import AppwriteClients
 from uniassist.persistence.appwrite_document_store import AppwriteDocumentStore
+from uniassist.persistence.appwrite_manifest_store import AppwriteIndexManifestStore
 from uniassist.persistence.appwrite_vector_store import AppwriteVectorStore
 from uniassist.persistence.config import AppwriteConfig
 from uniassist.rag.models import Chunk
@@ -114,11 +116,11 @@ def test_appwrite_vector_store_persists_chunks(appwrite_clients) -> None:
     appwrite_clients.databases.create_document.assert_called()
 
 
-def test_appwrite_vector_store_compacts_large_nvidia_vectors(appwrite_clients) -> None:
+def test_appwrite_vector_store_waits_for_remote_deletion(appwrite_clients) -> None:
     appwrite_clients.databases.list_documents.return_value = {"documents": []}
     store = AppwriteVectorStore(appwrite_clients)
     chunk = Chunk(
-        chunk_id="chunk-nvidia",
+        chunk_id="chunk-delete",
         document_id="doc-1",
         text="Students may request academic leave.",
         chunk_index=0,
@@ -130,11 +132,106 @@ def test_appwrite_vector_store_compacts_large_nvidia_vectors(appwrite_clients) -
         source_url=None,
         title="Rules",
     )
-    vector = [0.123456789 if index % 2 else -0.987654321 for index in range(1024)]
+    store.add(chunk, [1.0, 0.0])
+    store.clear()
+    assert appwrite_clients.databases.delete_document.called
+    assert appwrite_clients.databases.get_document.called
+
+
+def test_appwrite_manifest_store_waits_for_remote_deletion(appwrite_clients) -> None:
+    store = AppwriteIndexManifestStore(appwrite_clients)
+    store.clear()
+    assert appwrite_clients.databases.delete_document.called
+    assert appwrite_clients.databases.get_document.called
+
+
+def test_appwrite_vector_store_compacts_large_vectors(appwrite_clients) -> None:
+    appwrite_clients.databases.list_documents.return_value = {"documents": []}
+    store = AppwriteVectorStore(appwrite_clients)
+    chunk = Chunk(
+        chunk_id="chunk-large",
+        document_id="doc-1",
+        text="Students may request academic leave.",
+        chunk_index=0,
+        page_number=1,
+        section="1",
+        source_sha256="abc",
+        document_version="v1",
+        source="TEST",
+        source_url=None,
+        title="Rules",
+    )
+    vector = [0.123456789 if index % 2 else -0.987654321 for index in range(2048)]
 
     store.add(chunk, vector)
 
     payload = appwrite_clients.databases.create_document.call_args.kwargs["data"]
     serialized = payload["embedding"]
-    assert len(serialized) < 16384
+    assert len(serialized) < 32768
     assert json.loads(serialized)[0] == -0.987654
+
+
+def test_appwrite_vector_store_loads_all_pages(
+    appwrite_clients,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = Chunk(
+        chunk_id="chunk-page-1",
+        document_id="doc-1",
+        text="First page.",
+        chunk_index=0,
+        page_number=1,
+        section=None,
+        source_sha256="abc",
+        document_version=None,
+        source="TEST",
+        source_url=None,
+        title="Rules",
+    )
+    second = Chunk(
+        chunk_id="chunk-page-2",
+        document_id="doc-1",
+        text="Second page.",
+        chunk_index=1,
+        page_number=2,
+        section=None,
+        source_sha256="abc",
+        document_version=None,
+        source="TEST",
+        source_url=None,
+        title="Rules",
+    )
+    appwrite_clients.databases.list_documents.side_effect = [
+        {
+            "documents": [
+                {"chunk_json": json.dumps(first.to_dict()), "embedding": "[1]"}
+            ]
+        },
+        {
+            "documents": [
+                {"chunk_json": json.dumps(second.to_dict()), "embedding": "[2]"}
+            ]
+        },
+        {"documents": []},
+    ]
+    monkeypatch.setattr(vector_store_module, "APPWRITE_PAGE_SIZE", 1)
+
+    store = AppwriteVectorStore(appwrite_clients)
+
+    assert set(store._chunks) == {"chunk-page-1", "chunk-page-2"}  # noqa: SLF001
+    assert appwrite_clients.databases.list_documents.call_count == 3
+
+
+def test_appwrite_vector_store_retries_transient_page_read(
+    appwrite_clients,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    appwrite_clients.databases.list_documents.side_effect = [
+        ConnectionError("temporary TLS interruption"),
+        {"documents": []},
+    ]
+    monkeypatch.setattr(vector_store_module.time, "sleep", lambda _seconds: None)
+
+    AppwriteVectorStore(appwrite_clients)
+
+    assert appwrite_clients.databases.list_documents.call_count == 2

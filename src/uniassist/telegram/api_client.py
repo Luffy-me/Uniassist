@@ -65,11 +65,67 @@ class UniAssistAPIClient:
                 timeout=self.timeout_seconds,
             )
         except httpx.TimeoutException as exc:
+            # #region agent log
+            try:
+                import json
+                import time
+
+                with open(
+                    "/Users/cleo/Desktop/Uniassist/.cursor/debug-0bf777.log", "a"
+                ) as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "0bf777",
+                                "hypothesisId": "D",
+                                "location": "api_client.py:ask",
+                                "message": "ask_timeout",
+                                "data": {
+                                    "request_id": resolved_request_id,
+                                    "timeout_seconds": self.timeout_seconds,
+                                    "exc_type": type(exc).__name__,
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
             raise UniAssistAPIUnavailableError(
                 "UniAssist API request timed out",
                 request_id=resolved_request_id,
             ) from exc
         except httpx.RequestError as exc:
+            # #region agent log
+            try:
+                import json
+                import time
+
+                with open(
+                    "/Users/cleo/Desktop/Uniassist/.cursor/debug-0bf777.log", "a"
+                ) as _f:
+                    _f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "0bf777",
+                                "hypothesisId": "B",
+                                "location": "api_client.py:ask",
+                                "message": "ask_request_error",
+                                "data": {
+                                    "request_id": resolved_request_id,
+                                    "exc_type": type(exc).__name__,
+                                    "error": str(exc)[:240],
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
             raise UniAssistAPIUnavailableError(
                 "UniAssist API is unavailable",
                 request_id=resolved_request_id,

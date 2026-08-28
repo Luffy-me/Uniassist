@@ -28,7 +28,7 @@ export function UploadPage() {
         file: file as File,
         title,
         source,
-        source_url: sourceUrl || undefined,
+        source_url: sourceUrl.trim(),
         version: version || undefined,
         effective_date: effectiveDate || undefined,
         notes: notes || undefined,
@@ -49,7 +49,11 @@ export function UploadPage() {
   });
 
   const canSubmit =
-    file !== null && title.trim() !== "" && source.trim() !== "" && !uploadMutation.isPending;
+    file !== null &&
+    title.trim() !== "" &&
+    source.trim() !== "" &&
+    sourceUrl.trim() !== "" &&
+    !uploadMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -116,7 +120,7 @@ export function UploadPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="source-url">Source URL</Label>
+            <Label htmlFor="source-url">Official source URL</Label>
             <Input
               id="source-url"
               value={sourceUrl}

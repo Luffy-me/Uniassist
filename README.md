@@ -20,8 +20,8 @@ flowchart TD
     Processing --> ProcessedStore[Processed Content]
     ProcessedStore --> RAG[RAG Indexing]
     RAG --> Retrieval[Evidence Retrieval]
-    Retrieval --> FutureNVIDIA[NVIDIA Intelligence]
-    FutureNVIDIA --> FutureAPI[Future API]
+    Retrieval --> Groq[Groq Intelligence]
+    Groq --> FutureAPI[Future API]
     FutureAPI --> Telegram[Telegram]
     FutureAPI --> MAX[MAX]
     Telegram --> Student[Student]
@@ -48,7 +48,7 @@ UPLOAD
   ↓
 DRAFT + PENDING
   ↓
-future admin / NVIDIA verification
+future admin verification
   ↓
 VERIFIED
   ↓
@@ -78,7 +78,7 @@ Uniassist/
 │   ├── documents/             # v1 ingestion + store
 │   ├── processing/            # document processing (MinerU, text)
 │   ├── rag/                   # chunking, embeddings, retrieval
-│   ├── ai/                    # NVIDIA answer generation + verification
+│   ├── ai/                    # Groq answer generation + verification
 │   ├── api/                   # FastAPI application layer (Phase 7)
 │   └── scrapeai/              # optional acquisition (frozen)
 ├── frontend/                  # React admin dashboard (Phase 8)
@@ -95,7 +95,7 @@ Uniassist/
 | 3 | Document ingestion + provenance store | Done |
 | 4 | MinerU document processing | Done |
 | 5 | RAG evidence retrieval foundation | Done |
-| 6 | NVIDIA answer generation + verification | Done |
+| 6 | Groq answer generation + verification | Done |
 | 6.5 | Intelligence quality + verification hardening | Done |
 | 7 | FastAPI application API | Done |
 | 8 | Admin document UI | Done |
@@ -231,16 +231,16 @@ flowchart TD
 5. **Retrieval** — ranked `RetrievedChunk` results with full provenance
 6. **Eligibility filtering** — DRAFT, PENDING, REJECTED, and ARCHIVED documents are excluded
 
-Each `RetrievedChunk` preserves `document_id`, `chunk_id`, `source_sha256`, document version, source, source_url, page, section, and similarity score — everything needed for NVIDIA citation and verification.
+Each `RetrievedChunk` preserves `document_id`, `chunk_id`, `source_sha256`, document version, source, source_url, page, section, and similarity score — everything needed for citation and verification.
 
 ### Ask a grounded question (Phase 6)
 
 **Phase 6 generates and verifies answers from retrieved evidence. It does not replace the document corpus as the source of truth.**
 
-Requires `NVIDIA_API_KEY` (see `.env.example`). Uses NVIDIA NIM OpenAI-compatible chat completions at `https://integrate.api.nvidia.com/v1`.
+Requires `GROQ_API_KEY` (see `.env.example`) for live answers. Retrieval embeddings are local.
 
 ```bash
-export NVIDIA_API_KEY=your_key_here
+export GROQ_API_KEY=your_key_here
 
 python -m uniassist.ai.cli ask "Can I take academic leave?"
 python -m uniassist.ai.cli ask "Can I take academic leave?" --mock
@@ -249,7 +249,7 @@ python -m uniassist.ai.cli ask "Can I take academic leave?" --mock
 Pipeline:
 
 ```
-Question → Retriever → RetrievedChunk[] → NVIDIA → CandidateAnswer → VerificationEngine → VerifiedAnswer
+Question → Retriever → RetrievedChunk[] → Groq → CandidateAnswer → VerificationEngine → VerifiedAnswer
 ```
 
 - Answers are generated only from retrieved evidence
@@ -262,42 +262,29 @@ Question → Retriever → RetrievedChunk[] → NVIDIA → CandidateAnswer → V
 
 Phase 6.5 hardens retrieval and verification without changing the core architecture.
 
-**Development mode** (tests, offline work):
+**Development and production retrieval:**
 
-- `DeterministicEmbeddingProvider` — hash-based local embeddings (`UNIASSIST_EMBEDDING_PROVIDER=deterministic`)
+- `DeterministicEmbeddingProvider` — hash-based local embeddings (no API key)
 - `DeterministicSemanticVerifier` — keyword-overlap claim support checks
-- No API keys required
-
-**Production-quality path**:
-
-- `NVIDIAEmbeddingProvider` — semantic embeddings via NVIDIA NIM `POST /v1/embeddings`
-  - Default model: `nvidia/nv-embedqa-e5-v5` (override with `NVIDIA_EMBEDDING_MODEL`)
-  - Selected because UniAssist already uses NVIDIA NIM for answer generation
-- Vector index manifest tracks provider, model, and dimension — incompatible indexes require explicit rebuild
+- Groq chat for live answer generation (`GROQ_API_KEY`)
+- Vector index manifest tracks provider, model, and dimension
 - Retrieval supports `min_score` thresholds and per-document diversity limits
 - Layered verification: structural → evidence → citation → eligibility → semantic → contradiction
-- Optional `NVIDIASemanticVerifier` when `UNIASSIST_USE_NVIDIA_VERIFIER=1`
 - Model confidence is never treated as proof of evidence validity
 
 ```bash
-export NVIDIA_API_KEY=your_key_here
-export UNIASSIST_EMBEDDING_PROVIDER=nvidia
-
-# Rebuild index after changing embedding provider/model
 python -m uniassist.rag.cli rebuild
-
-# Search with minimum similarity threshold
 python -m uniassist.rag.cli search "academic leave" --min-score 0.35
 ```
 
 **Refusal behavior**: UniAssist refuses when there is no relevant evidence, claims are unsupported, citations are invalid, or evidence conflicts across active documents. Out-of-domain questions must not be answered from model knowledge alone.
 
-**NVIDIA integration test** (optional, not part of normal CI):
+**Groq integration test** (optional, not part of normal CI):
 
 ```bash
-export UNIASSIST_RUN_NVIDIA_INTEGRATION=1
-export NVIDIA_API_KEY=your_key_here
-pytest tests/ai/test_nvidia_integration.py -v
+export UNIASSIST_RUN_GROQ_INTEGRATION=1
+export GROQ_API_KEY=your_key_here
+pytest tests/e2e/test_real_fastapi_e2e.py -v
 ```
 
 ### REST API (Phase 7)
@@ -350,7 +337,7 @@ curl -s http://127.0.0.1:8000/documents/upload \
 | `UNIASSIST_PROJECT_ROOT` | Project root containing `data/` (default: current directory) |
 | `UNIASSIST_CORS_ORIGINS` | Comma-separated CORS allowlist (empty = disabled) |
 | `UNIASSIST_MAX_QUESTION_LENGTH` | Maximum `/ask` question length (default: 2000) |
-| `NVIDIA_API_KEY` | Required for live NVIDIA answers in production |
+| `GROQ_API_KEY` | Required for live Groq answers |
 
 CORS is **not** enabled by default. Set `UNIASSIST_CORS_ORIGINS` explicitly for local frontends.
 
@@ -396,69 +383,40 @@ npm run build
 npm test
 ```
 
-### Real NVIDIA NIM + Telegram end-to-end
+### Groq + Telegram end-to-end
 
-UniAssist connects to an **already running** NVIDIA NIM instance using the OpenAI-compatible API. It does not download models or install GPU software.
+UniAssist uses Groq for chat generation and local hash embeddings for retrieval. It does not download models or install GPU software.
 
 **Port layout (avoid conflicts)**
 
 | Service | URL |
 | --- | --- |
-| NVIDIA NIM | `http://127.0.0.1:8000/v1` |
 | UniAssist FastAPI | `http://127.0.0.1:8001` |
 | React admin (optional) | `http://localhost:5173` |
 
-**1. Inspect local NVIDIA NIM**
-
-```bash
-curl http://127.0.0.1:8000/v1/models
-```
-
-If this fails, NVIDIA NIM is not running. Start your local NIM first, then copy the returned model IDs into your environment.
-
-**2. Configure environment**
+**1. Configure environment**
 
 Copy `.env.example` to `.env` (`.env` is git-ignored) and set:
 
 ```bash
-NVIDIA_BASE_URL=http://localhost:8000/v1
-NVIDIA_CHAT_MODEL=<from /v1/models>
-NVIDIA_EMBEDDING_MODEL=<from /v1/models>
-UNIASSIST_EMBEDDING_PROVIDER=nvidia
-UNIASSIST_USE_NVIDIA_VERIFIER=1
+UNIASSIST_CHAT_PROVIDER=groq
+GROQ_API_KEY=<required for Groq chat>
+GROQ_CHAT_MODEL=openai/gpt-oss-20b
 UNIASSIST_API_URL=http://127.0.0.1:8001
 TELEGRAM_BOT_TOKEN=<your token>
+UNIASSIST_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-For hosted NVIDIA instead of local NIM:
+**2. Run the local stack**
+
+Terminal 1 — UniAssist API:
 
 ```bash
-NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_API_KEY=<required for hosted API>
-```
-
-**3. Rebuild the vector index with NVIDIA embeddings**
-
-After documents are uploaded, activated, and processed:
-
-```bash
-export UNIASSIST_EMBEDDING_PROVIDER=nvidia
-python -m uniassist.rag.cli rebuild
-```
-
-This replaces any deterministic development index. Never mix embedding providers in one index.
-
-**4. Run the full local stack**
-
-Terminal 1 — NVIDIA NIM (already running on port 8000)
-
-Terminal 2 — UniAssist API:
-
-```bash
+export UNIASSIST_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 uvicorn uniassist.api.app:create_app --factory --host 127.0.0.1 --port 8001 --reload
 ```
 
-Terminal 3 — Telegram bot:
+Terminal 2 — Telegram bot:
 
 ```bash
 python -m uniassist.telegram.bot
@@ -467,10 +425,10 @@ python -m uniassist.telegram.bot
 **Architecture**
 
 ```text
-Telegram → FastAPI :8001 /ask → RAG → NVIDIA NIM :8000 → Verification → Telegram
+Telegram → FastAPI :8001 /ask → RAG → Groq → Verification → Telegram
 ```
 
-Check safe NVIDIA status:
+Check status:
 
 ```bash
 curl http://127.0.0.1:8001/status
@@ -479,7 +437,7 @@ curl http://127.0.0.1:8001/status
 **Optional live integration tests**
 
 ```bash
-UNIASSIST_RUN_NVIDIA_INTEGRATION=1 pytest tests/ai/test_nvidia_integration.py -v
+UNIASSIST_RUN_GROQ_INTEGRATION=1 pytest tests/e2e/test_real_fastapi_e2e.py -v
 UNIASSIST_RUN_TELEGRAM_INTEGRATION=1 pytest tests/telegram/test_telegram_integration.py -v
 ```
 
@@ -487,7 +445,7 @@ Both skip automatically when the required services or credentials are unavailabl
 
 ### Phase 10 — End-to-end validation
 
-Phase 10 adds offline-safe test hardening plus optional **real** NVIDIA/FastAPI validation.
+Phase 10 adds offline-safe test hardening plus optional **real** Groq/FastAPI validation.
 
 **Default suite (offline, no external services):**
 
@@ -496,22 +454,19 @@ python -m pytest -v
 ruff check src tests
 ```
 
-Must show **0 failures** without NVIDIA, Telegram, internet, MinerU, or live ScrapeAI.
+Must show **0 failures** without Groq, Telegram, internet, MinerU, or live ScrapeAI.
 
 **Synthetic E2E corpus:** `tests/fixtures/e2e/` (4 university-style test documents, clearly marked as fixtures)
 
-**Optional live NVIDIA E2E** (real embeddings, retrieval, pipeline, FastAPI — not mocked):
+**Optional live Groq E2E:**
 
 ```bash
-export UNIASSIST_RUN_NVIDIA_INTEGRATION=1
-export NVIDIA_BASE_URL=http://localhost:8000/v1
-export NVIDIA_CHAT_MODEL=<from /v1/models>
-export NVIDIA_EMBEDDING_MODEL=<from /v1/models>
-export UNIASSIST_EMBEDDING_PROVIDER=nvidia
-pytest tests/e2e/test_real_nvidia_e2e.py tests/e2e/test_real_fastapi_e2e.py -v
+export UNIASSIST_RUN_GROQ_INTEGRATION=1
+export GROQ_API_KEY=your_key_here
+pytest tests/e2e/test_real_fastapi_e2e.py -v
 ```
 
-Skips with a clear reason if NVIDIA NIM is not running.
+Skips with a clear reason if Groq is not configured.
 
 **Optional live Telegram test** (calls `getMe` only, no user spam):
 
@@ -533,7 +488,7 @@ python -m uniassist.telegram.bot
 
 ### Telegram student bot (Phase 9)
 
-Phase 9 adds a production-structured Telegram client that consumes the existing FastAPI `/ask` endpoint only. The bot does **not** implement RAG, NVIDIA calls, verification, or document processing — it is a thin client boundary.
+Phase 9 adds a production-structured Telegram client that consumes the existing FastAPI `/ask` endpoint only. The bot does **not** implement RAG, Groq calls, verification, or document processing — it is a thin client boundary.
 
 **Architecture**
 
@@ -551,6 +506,9 @@ Future channels (for example MAX in Phase 10) should reuse the same `/ask` contr
 | `UNIASSIST_API_URL` | Base URL for UniAssist API (example: `http://127.0.0.1:8001`) |
 | `TELEGRAM_RATE_LIMIT_PER_MINUTE` | Per-user in-memory rate limit (default: 10) |
 | `TELEGRAM_REQUEST_TIMEOUT_SECONDS` | FastAPI client timeout (default: 60) |
+| `TELEGRAM_NETWORK_TIMEOUT_SECONDS` | Telegram connection/read/write timeout (default: 30) |
+| `TELEGRAM_POLL_TIMEOUT_SECONDS` | Telegram long-poll timeout (default: 30) |
+| `TELEGRAM_BOOTSTRAP_RETRIES` | Telegram startup retries after transient network failures (default: 3) |
 | `TELEGRAM_MAX_MESSAGE_LENGTH` | Telegram message split threshold (default: 4096) |
 | `UNIASSIST_RUN_TELEGRAM_INTEGRATION` | Set to `1` to enable optional live Telegram integration tests |
 

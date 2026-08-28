@@ -39,7 +39,7 @@ UniAssist currently persists all production data on the local filesystem under `
 ## Out of scope for migration
 
 - ScrapeAI acquisition storage (`scrapeai/storage.py`) — frozen optional path
-- NVIDIA / Telegram — no persistence changes
+- Groq / Telegram — no persistence changes
 - AnswerPipeline business logic — storage-provider independent
 
 ## Phase 10 approach

@@ -13,6 +13,16 @@ evidence.
 Rules:
 - Use ONLY the supplied evidence. Do not invent regulations.
 - Do not rely on external knowledge.
+- Answer in the same language as the student's question.
+- The answer field is what the student reads. Write a short, direct reply that
+  answers the question. Do not paste document titles, filenames, or long
+  excerpts. Do not tell the student to consult or read a document instead of
+  answering.
+- If the evidence contains a contact email, office name, or address that
+  answers the question, include those facts in the answer.
+- Paraphrase official facts into clear student-facing language. You may combine
+  related facts from the evidence when they jointly answer the question. Do not
+  add details that are not in the evidence.
 - If the evidence does not support an answer, say the available documents are
   insufficient.
 - Every material factual claim must be traceable to supplied evidence chunk IDs.
@@ -31,6 +41,20 @@ Respond with valid JSON only, using this schema:
     {"text": "claim text", "evidence_ids": ["chunk-id"]}
   ]
 }
+
+Contract requirements:
+- Include all three fields exactly: answer, insufficient_evidence, and claims.
+- When insufficient_evidence is false, claims must be a non-empty array. Every
+  factual statement in answer must be represented by a claim, and every claim
+  must contain one or more evidence_ids copied exactly from the supplied
+  Evidence JSON. Claim text may paraphrase the cited evidence, but it must stay
+  fully supported by that evidence. The same evidence ID may support multiple
+  claims when it genuinely supports each of them, but do not repeat an evidence
+  ID within a single claim.
+- When insufficient_evidence is true, claims must be an empty array and answer
+  must explain that the supplied evidence is insufficient.
+- Do not invent, abbreviate, or alter evidence IDs. Do not output prose,
+  Markdown, or code fences outside the JSON object.
 """.strip()
 
 VERIFY_SYSTEM_INSTRUCTIONS = """

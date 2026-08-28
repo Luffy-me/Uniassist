@@ -19,6 +19,13 @@ from uniassist.processing.processors.mineru import (
     MinerUProcessor,
     mineru_version,
 )
+from uniassist.processing.processors.pdf_text import (
+    PROCESSOR_VERSION as PDF_TEXT_PROCESSOR_VERSION,
+)
+from uniassist.processing.processors.pdf_text import (
+    EmptyPdfTextError,
+    PdfTextProcessor,
+)
 from uniassist.processing.processors.text import (
     PROCESSOR_VERSION as TEXT_PROCESSOR_VERSION,
 )
@@ -124,32 +131,21 @@ class DocumentProcessingService:
         )
         try:
             normalized = processor.process(context)
-            output_path = self._processing_store.save_normalized(normalized)
-            content_hash = sha256_hex(self._read_output_bytes(output_path))
-            return self._save_result(
-                ProcessingResult(
-                    document_id=record.document_id,
-                    status=ProcessingStatus.COMPLETED,
-                    processor=processor.name,
-                    input_path=input_path,
-                    output_path=output_path,
-                    processed_at=datetime.now(UTC),
-                    source_sha256=record.sha256,
-                    content_hash=content_hash,
-                    processor_version=normalized.processor_version,
-                )
+            return self._save_completed(
+                record,
+                processor_name=processor.name,
+                input_path=input_path,
+                normalized=normalized,
             )
-        except MinerUNotInstalledError as exc:
-            return self._save_result(
-                self._failed_result(
-                    document_id=record.document_id,
-                    processor=processor.name,
+        except (MinerUNotInstalledError, Exception) as exc:
+            if processor.name == "mineru":
+                fallback = self._pdf_text_fallback(
+                    record,
                     input_path=input_path,
-                    source_sha256=record.sha256,
-                    error=str(exc),
+                    previous_error=str(exc),
                 )
-            )
-        except Exception as exc:
+                if fallback is not None:
+                    return self._save_result(fallback)
             return self._save_result(
                 self._failed_result(
                     document_id=record.document_id,
@@ -312,9 +308,93 @@ class DocumentProcessingService:
                     return store.read(ref)
         return output_path.read_bytes()
 
+    def _save_completed(
+        self,
+        record: DocumentRecord,
+        *,
+        processor_name: str,
+        input_path: Path,
+        normalized,
+    ) -> ProcessingResult:
+        output_path = self._processing_store.save_normalized(normalized)
+        content_hash = sha256_hex(self._read_output_bytes(output_path))
+        return self._save_result(
+            ProcessingResult(
+                document_id=record.document_id,
+                status=ProcessingStatus.COMPLETED,
+                processor=processor_name,
+                input_path=input_path,
+                output_path=output_path,
+                processed_at=datetime.now(UTC),
+                source_sha256=record.sha256,
+                content_hash=content_hash,
+                processor_version=normalized.processor_version,
+            )
+        )
+
+    def _pdf_text_fallback(
+        self,
+        record: DocumentRecord,
+        *,
+        input_path: Path,
+        previous_error: str,
+    ) -> ProcessingResult | None:
+        if Path(record.filename).suffix.lower() != ".pdf":
+            return None
+        processor = PdfTextProcessor()
+        context = ProcessorContext(
+            record=record,
+            output_dir=self._processing_store.output_dir_for(
+                record.document_id,
+                record.sha256,
+            ),
+            input_path=input_path,
+        )
+        try:
+            normalized = processor.process(context)
+        except EmptyPdfTextError as exc:
+            return self._failed_result(
+                document_id=record.document_id,
+                processor="pdf_text",
+                input_path=input_path,
+                source_sha256=record.sha256,
+                error=f"{previous_error} {exc}",
+            )
+        except Exception:
+            return None
+        return self._completed_from_normalized(
+            record,
+            processor_name=processor.name,
+            input_path=input_path,
+            normalized=normalized,
+        )
+
+    def _completed_from_normalized(
+        self,
+        record: DocumentRecord,
+        *,
+        processor_name: str,
+        input_path: Path,
+        normalized,
+    ) -> ProcessingResult:
+        output_path = self._processing_store.save_normalized(normalized)
+        return ProcessingResult(
+            document_id=record.document_id,
+            status=ProcessingStatus.COMPLETED,
+            processor=processor_name,
+            input_path=input_path,
+            output_path=output_path,
+            processed_at=datetime.now(UTC),
+            source_sha256=record.sha256,
+            content_hash=sha256_hex(self._read_output_bytes(output_path)),
+            processor_version=normalized.processor_version,
+        )
+
     def _processor_version(self, processor: object) -> str | None:
         if getattr(processor, "name", None) == "text":
             return TEXT_PROCESSOR_VERSION
+        if getattr(processor, "name", None) == "pdf_text":
+            return PDF_TEXT_PROCESSOR_VERSION
         if getattr(processor, "name", None) == "mineru":
             return mineru_version()
         return None

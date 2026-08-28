@@ -43,8 +43,12 @@ class UserFacingError:
 
 
 REFUSAL_MESSAGE = (
-    "I couldn't find sufficient information in the university's "
-    "verified documents to answer this reliably."
+    "I could not find enough information in the university's verified documents "
+    "to answer this reliably. If nothing has been published yet, ask an "
+    "administrator to upload and publish official documents.\n\n"
+    "В проверенных документах университета недостаточно сведений, чтобы "
+    "ответить надёжно. Если корпус ещё пуст, попросите администратора "
+    "загрузить и опубликовать официальные документы."
 )
 
 EMPTY_MESSAGE_TEXT = "Please send a text question about university rules or procedures."

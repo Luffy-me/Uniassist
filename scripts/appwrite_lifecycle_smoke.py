@@ -10,22 +10,30 @@ os.environ["UNIASSIST_EMBEDDING_PROVIDER"] = "deterministic"
 
 from fastapi.testclient import TestClient
 
-LEAVE_TEXT = (
-    "Students may request academic leave by submitting a formal request "
-    "to the academic office."
-)
 from uniassist.ai.pipeline import AnswerPipeline
 from uniassist.ai.providers.mock import MockLLMProvider
 from uniassist.api.app import create_app
 from uniassist.api.dependencies import build_services, load_settings
-from uniassist.persistence.config import AppwriteConfig, StorageBackend, resolve_storage_backend
+from uniassist.persistence.config import (
+    AppwriteConfig,
+    StorageBackend,
+    resolve_storage_backend,
+)
 from uniassist.persistence.factory import build_persistence
 from uniassist.rag.indexing import IndexingService
+
+LEAVE_TEXT = (
+    "Students may request academic leave by submitting a formal request "
+    "to the academic office."
+)
 
 
 def _prepare_appwrite_index_state(project_root: Path) -> None:
     from uniassist.persistence.config import StorageBackend, resolve_storage_backend
-    from uniassist.rag.embeddings import DEFAULT_DIMENSION, DeterministicEmbeddingProvider
+    from uniassist.rag.embeddings import (
+        DEFAULT_DIMENSION,
+        DeterministicEmbeddingProvider,
+    )
     from uniassist.rag.index_metadata import IndexManifest
 
     if resolve_storage_backend() != StorageBackend.APPWRITE:
@@ -106,7 +114,9 @@ def main() -> None:
     if idx.status_code != 200:
         raise RuntimeError(f"index failed: {idx.text}")
 
-    grounded = client.post("/ask", json={"question": "How do I request academic leave?"})
+    grounded = client.post(
+        "/ask", json={"question": "How do I request academic leave?"}
+    )
     if grounded.status_code != 200:
         raise RuntimeError(f"ask failed: {grounded.text}")
     body = grounded.json()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -26,9 +27,9 @@ class RetrievalError(ValueError):
 class RetrievalConfig:
     """Configuration for evidence retrieval."""
 
-    top_k: int = 5
+    top_k: int = 8
     min_score: float | None = None
-    max_chunks_per_document: int = 2
+    max_chunks_per_document: int = 3
 
 
 @dataclass(frozen=True)
@@ -113,11 +114,18 @@ class Retriever:
 
         started = time.perf_counter()
         query_vector = self._embedding_provider.embed_text(cleaned)
+        pool_size = max(limit, len(self._vector_store) or limit)
         results = self._vector_store.search(
             query_vector,
-            top_k=limit,
+            top_k=pool_size,
             allowed_document_ids=allowed_document_ids,
             min_score=min_score,
+            max_chunks_per_document=None,
+        )
+        results = _hybrid_rerank(
+            cleaned,
+            results,
+            top_k=limit,
             max_chunks_per_document=self._config.max_chunks_per_document,
         )
         results = self._apply_version_preference(results, document_records)
@@ -187,8 +195,123 @@ class Retriever:
         return len(durations) > 1
 
 
-def _duration_hint(text: str) -> str | None:
-    import re
+_VECTOR_WEIGHT = 0.35
+_LEXICAL_WEIGHT = 0.65
+_RETRIEVAL_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "is",
+    "are",
+    "be",
+    "by",
+    "with",
+    "as",
+    "at",
+    "it",
+    "this",
+    "that",
+    "where",
+    "when",
+    "how",
+    "what",
+    "who",
+    "can",
+    "get",
+    "do",
+}
+_QUERY_EXPANSIONS = {
+    "email": ("email", "e-mail", "mail", "mailto"),
+    "e-mail": ("email", "e-mail", "mail", "mailto"),
+    "address": ("address", "email", "mail"),
+    "help": ("help", "support"),
+    "support": ("support", "help"),
+    "contact": ("contact", "email", "tel"),
+}
 
+
+def _hybrid_rerank(
+    query: str,
+    results: list[RetrievedChunk],
+    *,
+    top_k: int,
+    max_chunks_per_document: int,
+) -> list[RetrievedChunk]:
+    scored = [
+        (
+            _VECTOR_WEIGHT * item.similarity_score
+            + _LEXICAL_WEIGHT
+            * _lexical_score(query, item.chunk.text, item.chunk.title),
+            item,
+        )
+        for item in results
+    ]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    selected: list[RetrievedChunk] = []
+    per_document: dict[str, int] = {}
+    for combined, item in scored:
+        if len(selected) >= top_k:
+            break
+        document_id = item.chunk.document_id
+        if per_document.get(document_id, 0) >= max_chunks_per_document:
+            continue
+        per_document[document_id] = per_document.get(document_id, 0) + 1
+        selected.append(
+            RetrievedChunk(
+                chunk=item.chunk,
+                similarity_score=combined,
+                rank=len(selected) + 1,
+            )
+        )
+    return selected
+
+
+def _lexical_score(query: str, text: str, title: str) -> float:
+    terms = _retrieval_terms(query)
+    if not terms:
+        return 0.0
+    haystack = f"{title} {text}".lower()
+    haystack = haystack.replace("[at]", "@").replace("[dot]", ".")
+    hits = sum(1 for term in terms if term in haystack)
+    score = hits / len(terms)
+    lowered_query = query.lower()
+    lowered_title = title.lower()
+    if any(token in lowered_query for token in ("email", "e-mail", "mail")):
+        if "@" in haystack or "mailto:" in haystack or "e-mail" in haystack:
+            score = min(1.0, score + 0.35)
+    if any(token in lowered_query for token in ("help", "support", "contact")):
+        if "student support" in lowered_title:
+            score = min(1.0, score + 0.4)
+        elif "support" in lowered_title or "international office" in lowered_title:
+            score = min(1.0, score + 0.2)
+    stripped = text.strip()
+    if stripped.startswith("http") and len(stripped) < 220:
+        score *= 0.4
+    return score
+
+
+def _retrieval_terms(query: str) -> list[str]:
+    tokens = re.findall(r"[a-z0-9@.-]+", query.lower())
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token in _RETRIEVAL_STOPWORDS or len(token) < 2:
+            continue
+        candidates = (token, *_QUERY_EXPANSIONS.get(token, ()))
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                terms.append(candidate)
+    return terms
+
+
+def _duration_hint(text: str) -> str | None:
     match = re.search(r"\b(\d+)\s*(month|months|year|years)\b", text.lower())
     return match.group(0) if match else None

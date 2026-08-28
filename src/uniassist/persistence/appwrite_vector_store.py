@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
+
+from appwrite.query import Query
 
 from uniassist.persistence.appwrite_client import AppwriteClients
 from uniassist.persistence.appwrite_sdk_adapter import (
@@ -12,6 +15,9 @@ from uniassist.persistence.appwrite_sdk_adapter import (
 )
 from uniassist.rag.models import Chunk
 from uniassist.rag.vector_store import VectorStore
+
+APPWRITE_PAGE_SIZE = 100
+APPWRITE_READ_RETRIES = 3
 
 
 class AppwriteVectorStore(VectorStore):
@@ -47,9 +53,30 @@ class AppwriteVectorStore(VectorStore):
         return removed
 
     def clear(self) -> None:
-        for chunk_id in list(self._chunks):
+        chunk_ids = list(self._chunks)
+        for chunk_id in chunk_ids:
             self.delete(chunk_id)
+        self._wait_for_remote_deletions(chunk_ids)
         super().clear()
+
+    def _wait_for_remote_deletions(self, chunk_ids: list[str]) -> None:
+        """Avoid rebuilding against Appwrite rows that are still deleting."""
+        for _ in range(20):
+            remaining = []
+            for chunk_id in chunk_ids:
+                try:
+                    self._clients.databases.get_document(
+                        database_id=self._config.database_id,
+                        collection_id=self._config.chunks_collection_id,
+                        document_id=appwrite_row_id(chunk_id),
+                    )
+                except Exception:
+                    continue
+                remaining.append(chunk_id)
+            if not remaining:
+                return
+            time.sleep(0.5)
+        raise RuntimeError("Appwrite chunk deletion did not complete before rebuild")
 
     def _persist_chunk(self, chunk: Chunk, vector: list[float]) -> None:
         payload = sanitize_payload(
@@ -85,20 +112,40 @@ class AppwriteVectorStore(VectorStore):
             )
 
     def _load(self) -> None:
-        response = self._clients.databases.list_documents(
-            database_id=self._config.database_id,
-            collection_id=self._config.chunks_collection_id,
-        )
-        for item in iter_collection_documents(response):
-            if item.get("chunk_id") == "index_manifest":
-                continue
-            chunk_data = json.loads(str(item.get("chunk_json", "{}")))
-            if not chunk_data:
-                continue
-            chunk = Chunk.from_dict(chunk_data)
-            vector = json.loads(str(item.get("embedding", "[]")))
-            if vector:
-                super().add(chunk, vector)
+        offset = 0
+        while True:
+            response = self._load_page(offset)
+            items = iter_collection_documents(response)
+            for item in items:
+                if item.get("chunk_id") == "index_manifest":
+                    continue
+                chunk_data = json.loads(str(item.get("chunk_json", "{}")))
+                if not chunk_data:
+                    continue
+                chunk = Chunk.from_dict(chunk_data)
+                vector = json.loads(str(item.get("embedding", "[]")))
+                if vector:
+                    super().add(chunk, vector)
+            if len(items) < APPWRITE_PAGE_SIZE:
+                return
+            offset += len(items)
+
+    def _load_page(self, offset: int):
+        """Read one Appwrite page, tolerating brief Cloud/TLS interruptions."""
+        last_error: Exception | None = None
+        for attempt in range(APPWRITE_READ_RETRIES):
+            try:
+                return self._clients.databases.list_documents(
+                    database_id=self._config.database_id,
+                    collection_id=self._config.chunks_collection_id,
+                    queries=[Query.limit(APPWRITE_PAGE_SIZE), Query.offset(offset)],
+                )
+            except Exception as exc:
+                last_error = exc
+                if attempt < APPWRITE_READ_RETRIES - 1:
+                    time.sleep(0.5 * (2**attempt))
+        assert last_error is not None
+        raise last_error
 
 
 def _serialize_vector(vector: list[float]) -> str:

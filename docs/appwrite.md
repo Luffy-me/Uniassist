@@ -95,4 +95,4 @@ python -m pytest tests/integration/appwrite -v
 VITE_API_URL=https://your-production-api.example.com
 ```
 
-Do not place Appwrite or NVIDIA secrets in frontend env vars.
+Do not place Appwrite or Groq secrets in frontend env vars.

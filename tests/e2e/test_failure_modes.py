@@ -20,7 +20,7 @@ async def test_telegram_empty_question(bot_services: BotServices) -> None:
 
 
 @pytest.mark.asyncio
-async def test_telegram_nvidia_unavailable_maps_to_friendly_error(
+async def test_telegram_api_unavailable_maps_to_friendly_error(
     bot_services: BotServices,
 ) -> None:
     bot_services.api_client.ask = AsyncMock(
@@ -31,4 +31,4 @@ async def test_telegram_nvidia_unavailable_maps_to_friendly_error(
     await text_question(update, context)
     reply = update.effective_message.reply_text.await_args.args[0]
     assert SERVICE_UNAVAILABLE_MESSAGE in reply
-    assert "NVIDIA" not in reply
+    assert "GROQ" not in reply

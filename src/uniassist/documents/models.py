@@ -17,7 +17,7 @@ class DocumentStatus(StrEnum):
 
 
 class VerificationState(StrEnum):
-    """Verification state reserved for future NVIDIA/admin review."""
+    """Verification state reserved for future admin review."""
 
     PENDING = "pending"
     VERIFIED = "verified"

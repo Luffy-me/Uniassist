@@ -3,6 +3,7 @@ import {
   canActivate,
   canIndex,
   canProcess,
+  canPublish,
   getLifecycleSteps,
 } from "@/lib/lifecycle";
 import type { Document } from "@/types/api";
@@ -23,6 +24,7 @@ const baseDocument: Document = {
   verification_state: "pending",
   notes: null,
   processing_status: null,
+  processing_error: null,
   indexed: false,
   chunks_indexed: null,
 };
@@ -75,6 +77,33 @@ describe("lifecycle helpers", () => {
         indexed: true,
       }),
     ).toBe(false);
+  });
+
+  it("allows publish until the document is indexed", () => {
+    expect(canPublish(baseDocument)).toBe(true);
+    expect(
+      canPublish({
+        ...baseDocument,
+        status: "active",
+        verification_state: "verified",
+        processing_status: "completed",
+        indexed: true,
+      }),
+    ).toBe(false);
+    expect(canPublish({ ...baseDocument, status: "archived" })).toBe(false);
+  });
+
+  it("surfaces processing_error on a failed process step", () => {
+    const steps = getLifecycleSteps({
+      ...baseDocument,
+      status: "active",
+      verification_state: "verified",
+      processing_status: "failed",
+      processing_error: "This PDF has no extractable text",
+    });
+    const processed = steps.find((step) => step.id === "processed");
+    expect(processed?.state).toBe("failed");
+    expect(processed?.detail).toContain("no extractable text");
   });
 
   it("derives lifecycle steps from backend state", () => {

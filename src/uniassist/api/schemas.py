@@ -29,13 +29,9 @@ class StatusResponse(BaseModel):
     rag_available: bool
     indexed_documents: int = 0
     total_chunks: int = 0
-    nvidia_configured: bool
-    nvidia_embedding_configured: bool
-    nvidia_base_url: str | None = None
-    nvidia_chat_model: str | None = None
-    nvidia_embedding_model: str | None = None
-    nvidia_reachable: bool | None = None
-    nvidia_health_message: str | None = None
+    chat_provider: str = "groq"
+    groq_configured: bool = False
+    groq_chat_model: str | None = None
     storage_backend: str = "local"
     appwrite_configured: bool = False
 
@@ -100,6 +96,7 @@ class DocumentResponse(BaseModel):
     verification_state: str
     notes: str | None = None
     processing_status: str | None = None
+    processing_error: str | None = None
     indexed: bool = False
     chunks_indexed: int | None = None
 
@@ -196,6 +193,7 @@ def document_response(
     record: DocumentRecord,
     *,
     processing_status: str | None = None,
+    processing_error: str | None = None,
     indexed: bool = False,
     chunks_indexed: int | None = None,
 ) -> DocumentResponse:
@@ -215,6 +213,7 @@ def document_response(
         verification_state=record.verification_state.value,
         notes=record.notes,
         processing_status=processing_status,
+        processing_error=processing_error,
         indexed=indexed,
         chunks_indexed=chunks_indexed,
     )

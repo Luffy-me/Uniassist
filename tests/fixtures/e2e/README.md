@@ -3,8 +3,8 @@
 These documents are **synthetic test fixtures** for end-to-end validation.
 They are **not** actual university regulations.
 
-Used by optional live NVIDIA integration tests when
-`UNIASSIST_RUN_NVIDIA_INTEGRATION=1`.
+Used by optional live Groq integration tests when
+`UNIASSIST_RUN_GROQ_INTEGRATION=1`.
 
 | File | Topic |
 |------|-------|

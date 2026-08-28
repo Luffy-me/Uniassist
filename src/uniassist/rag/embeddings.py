@@ -4,9 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import math
+from dataclasses import dataclass
 from typing import Protocol
 
 DEFAULT_DIMENSION = 128
+
+
+@dataclass(frozen=True)
+class EmbeddingProviderInfo:
+    """Metadata describing an embedding provider."""
+
+    provider_name: str
+    model_name: str
+    dimension: int
 
 
 class EmbeddingProvider(Protocol):
@@ -42,9 +52,7 @@ class DeterministicEmbeddingProvider:
         return self._dimension
 
     @property
-    def info(self):
-        from uniassist.rag.nvidia_embeddings import EmbeddingProviderInfo
-
+    def info(self) -> EmbeddingProviderInfo:
         return EmbeddingProviderInfo(
             provider_name=self.provider_name,
             model_name="deterministic-hash-v1",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import re
@@ -13,6 +14,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from uniassist.ai.pipeline import AnswerPipeline
+from uniassist.api.errors import UnauthorizedError
 from uniassist.documents.ingestion import DocumentIngestionService
 from uniassist.processing.service import DocumentProcessingService
 from uniassist.rag.indexing import IndexingService
@@ -23,6 +25,9 @@ REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9\-]{8,64}$")
 
 
+ADMIN_SECRET_HEADER = "X-Admin-Secret"
+
+
 @dataclass
 class AppSettings:
     """Runtime configuration for the API layer."""
@@ -30,6 +35,7 @@ class AppSettings:
     project_root: Path
     max_question_length: int = 2000
     cors_origins: tuple[str, ...] = ()
+    admin_secret: str = ""
 
 
 @dataclass
@@ -59,6 +65,7 @@ def load_settings(project_root: Path | None = None) -> AppSettings:
             os.environ.get("UNIASSIST_MAX_QUESTION_LENGTH", "2000")
         ),
         cors_origins=cors_origins,
+        admin_secret=os.environ.get("UNIASSIST_ADMIN_SECRET", "").strip(),
     )
 
 
@@ -111,8 +118,32 @@ def get_request_id(request: Request) -> str:
     return request.state.request_id
 
 
+def require_admin(
+    request: Request,
+    services: AppServices = Depends(get_services),
+) -> None:
+    """Require the staff secret on mutating document routes when configured."""
+    secret = services.settings.admin_secret
+    if not secret:
+        return
+    provided = request.headers.get(ADMIN_SECRET_HEADER, "")
+    if not _secrets_match(provided, secret):
+        raise UnauthorizedError("admin authentication required")
+
+
+def _secrets_match(provided: str, expected: str) -> bool:
+    provided_digest = hmac.new(
+        b"uniassist-admin", provided.encode("utf-8"), "sha256"
+    ).digest()
+    expected_digest = hmac.new(
+        b"uniassist-admin", expected.encode("utf-8"), "sha256"
+    ).digest()
+    return hmac.compare_digest(provided_digest, expected_digest)
+
+
 ServicesDep = Annotated[AppServices, Depends(get_services)]
 RequestIdDep = Annotated[str, Depends(get_request_id)]
+AdminDep = Annotated[None, Depends(require_admin)]
 
 
 def resolve_request_id(header_value: str | None) -> str:

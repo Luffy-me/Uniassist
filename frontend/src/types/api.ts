@@ -23,6 +23,7 @@ export interface Document {
   verification_state: VerificationState;
   notes: string | null;
   processing_status: ProcessingStatus | null;
+  processing_error: string | null;
   indexed: boolean;
   chunks_indexed: number | null;
 }
@@ -77,8 +78,9 @@ export interface StatusResponse {
   rag_available: boolean;
   indexed_documents: number;
   total_chunks: number;
-  nvidia_configured: boolean;
-  nvidia_embedding_configured: boolean;
+  chat_provider?: string;
+  groq_configured?: boolean;
+  groq_chat_model?: string | null;
 }
 
 export interface DocumentListFilters {

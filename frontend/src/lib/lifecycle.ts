@@ -39,7 +39,9 @@ export function getLifecycleSteps(document: Document): LifecycleStep[] {
           : activated
             ? "current"
             : "upcoming",
-      detail: document.processing_status ?? "not started",
+      detail: failed
+        ? document.processing_error ?? document.processing_status ?? "failed"
+        : document.processing_status ?? "not started",
     },
     {
       id: "indexed",
@@ -58,6 +60,19 @@ export function getLifecycleSteps(document: Document): LifecycleStep[] {
 
 export function canActivate(document: Document): boolean {
   return document.status === "draft";
+}
+
+export function canPublish(document: Document): boolean {
+  if (document.status === "archived") {
+    return false;
+  }
+  if (document.indexed) {
+    return false;
+  }
+  if (document.processing_status === "processing") {
+    return false;
+  }
+  return true;
 }
 
 export function canProcess(document: Document): boolean {

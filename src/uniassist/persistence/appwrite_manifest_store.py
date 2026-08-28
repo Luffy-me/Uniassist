@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from uniassist.persistence.appwrite_client import AppwriteClients
 from uniassist.persistence.appwrite_sdk_adapter import document_data, sanitize_payload
@@ -69,3 +70,14 @@ class AppwriteIndexManifestStore:
             )
         except Exception:
             return
+        for _ in range(20):
+            try:
+                self._clients.databases.get_document(
+                    database_id=self._config.database_id,
+                    collection_id=self._config.chunks_collection_id,
+                    document_id=MANIFEST_DOCUMENT_ID,
+                )
+            except Exception:
+                return
+            time.sleep(0.5)
+        raise RuntimeError("Appwrite manifest deletion did not complete before rebuild")

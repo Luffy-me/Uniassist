@@ -38,8 +38,9 @@ def test_telegram_boundary_verified_contract(api_client: TestClient) -> None:
     result = _parse_ask_response(payload, "telegram-req-1")
     formatted = format_ask_result(result)
     assert "Students may request academic leave." in formatted
-    assert "Sources:" in formatted
+    assert "Sources / Источники:" in formatted
     assert "Academic Leave Regulations" in formatted
+    assert "https://example.org/leave" in formatted
 
 
 def test_telegram_boundary_refusal_contract(project_root) -> None:
@@ -53,7 +54,8 @@ def test_telegram_boundary_refusal_contract(project_root) -> None:
     payload = response.json()
     result = _parse_ask_response(payload, payload["request_id"])
     formatted = format_ask_result(result)
-    assert "No relevant evidence" in formatted or formatted == REFUSAL_MESSAGE
+    assert formatted == REFUSAL_MESSAGE
+    assert "недостаточно сведений" in formatted
 
 
 @pytest.mark.asyncio

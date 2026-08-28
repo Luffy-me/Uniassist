@@ -71,3 +71,9 @@ export async function indexDocument(documentId: string) {
     method: "POST",
   });
 }
+
+export async function publishDocument(documentId: string) {
+  return apiRequest<Document>(`/documents/${documentId}/publish`, {
+    method: "POST",
+  });
+}

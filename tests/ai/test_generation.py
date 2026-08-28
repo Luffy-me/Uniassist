@@ -11,7 +11,7 @@ from uniassist.ai.generation import (
     GenerationFailure,
 )
 from uniassist.ai.models import RefusalReason
-from uniassist.ai.parsing import GenerationParseError
+from uniassist.ai.parsing import GenerationParseError, InsufficientEvidenceError
 from uniassist.ai.providers.mock import MockLLMProvider
 
 
@@ -60,3 +60,19 @@ def test_malformed_provider_response_returns_generation_failure(ai_stack) -> Non
     result = generation.generate("Can I take academic leave?")
     assert isinstance(result, GenerationFailure)
     assert result.reason == RefusalReason.GENERATION_FAILURE
+
+
+def test_explicit_insufficient_evidence_returns_controlled_refusal(ai_stack) -> None:
+    ingest_process_index(
+        ai_stack,
+        filename="leave.txt",
+        content=LEAVE_TEXT,
+        title="Academic Leave Regulations",
+    )
+    provider = MockLLMProvider(
+        raise_on_generate=InsufficientEvidenceError("evidence is insufficient"),
+    )
+    generation = AnswerGenerationService(ai_stack["retriever"], provider)
+    result = generation.generate("Can I take academic leave?")
+    assert isinstance(result, GenerationFailure)
+    assert result.reason == RefusalReason.NO_RELEVANT_EVIDENCE

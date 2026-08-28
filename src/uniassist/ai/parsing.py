@@ -13,16 +13,22 @@ class GenerationParseError(ValueError):
     """Raised when model output cannot be parsed into structured form."""
 
 
+class InsufficientEvidenceError(GenerationParseError):
+    """Raised when the model explicitly reports insufficient evidence."""
+
+
 def extract_message_content(response: dict[str, Any]) -> str:
     """Extract assistant message content from a chat completion response."""
     try:
         return str(response["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError) as exc:
-        raise GenerationParseError("NVIDIA response missing message content") from exc
+        raise GenerationParseError(
+            "chat provider response missing message content"
+        ) from exc
 
 
 def parse_json_content(content: str) -> dict[str, Any]:
-    """Parse JSON from model content, tolerating fenced code blocks."""
+    """Parse a JSON object from model content, tolerating safe wrappers."""
     cleaned = content.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
@@ -30,17 +36,48 @@ def parse_json_content(content: str) -> dict[str, Any]:
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise GenerationParseError("model output is not valid JSON") from exc
+        payload = _extract_json_object(cleaned)
+        if payload is None:
+            raise GenerationParseError("model output is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise GenerationParseError("model output JSON must be an object")
     return payload
 
 
-def parse_structured_answer(payload: dict[str, Any]) -> StructuredAnswerPayload:
+def _extract_json_object(content: str) -> dict[str, Any] | None:
+    """Return a complete JSON object embedded in model reasoning or prose."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", content):
+        try:
+            payload, _ = decoder.raw_decode(content[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def parse_structured_answer(
+    payload: dict[str, Any],
+    *,
+    allowed_evidence_ids: set[str] | None = None,
+) -> StructuredAnswerPayload:
     """Validate and parse structured answer JSON."""
-    answer = str(payload.get("answer", "")).strip()
-    insufficient = bool(payload.get("insufficient_evidence", False))
-    claims_raw = payload.get("claims", [])
+    required_fields = {"answer", "insufficient_evidence", "claims"}
+    missing = required_fields.difference(payload)
+    if missing:
+        raise GenerationParseError(
+            f"model output missing required field(s): {', '.join(sorted(missing))}"
+        )
+
+    answer_raw = payload["answer"]
+    if not isinstance(answer_raw, str):
+        raise GenerationParseError("answer must be a string")
+    answer = answer_raw.strip()
+    insufficient = payload["insufficient_evidence"]
+    if not isinstance(insufficient, bool):
+        raise GenerationParseError("insufficient_evidence must be a boolean")
+    claims_raw = payload["claims"]
     if not isinstance(claims_raw, list):
         raise GenerationParseError("claims must be a list")
 
@@ -54,10 +91,23 @@ def parse_structured_answer(payload: dict[str, Any]) -> StructuredAnswerPayload:
         evidence_ids = item.get("evidence_ids", [])
         if not isinstance(evidence_ids, list):
             raise GenerationParseError("evidence_ids must be a list")
+        normalized_evidence_ids = tuple(
+            str(value).strip() for value in evidence_ids if str(value).strip()
+        )
+        if not normalized_evidence_ids:
+            raise GenerationParseError("each claim requires at least one evidence_id")
+        if len(set(normalized_evidence_ids)) != len(normalized_evidence_ids):
+            raise GenerationParseError(
+                "evidence_ids must be unique within each claim"
+            )
+        if allowed_evidence_ids is not None:
+            invalid_ids = set(normalized_evidence_ids).difference(allowed_evidence_ids)
+            if invalid_ids:
+                raise GenerationParseError("claim references unknown evidence_id")
         claims.append(
             AnswerClaim(
                 text=text,
-                evidence_ids=tuple(str(value) for value in evidence_ids),
+                evidence_ids=normalized_evidence_ids,
             )
         )
 
@@ -65,6 +115,13 @@ def parse_structured_answer(payload: dict[str, Any]) -> StructuredAnswerPayload:
         raise GenerationParseError(
             "answer text is required unless insufficient_evidence"
         )
+    if insufficient:
+        if claims:
+            raise GenerationParseError(
+                "insufficient_evidence responses must not include claims"
+            )
+    elif not claims:
+        raise GenerationParseError("claims are required for a grounded answer")
 
     return StructuredAnswerPayload(
         answer=answer,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from datetime import date
@@ -11,7 +10,6 @@ from uniassist.ai.claim_verification import (
     ClaimAssessment,
     ClaimSupportStatus,
     DeterministicSemanticVerifier,
-    NVIDIASemanticVerifier,
     SemanticVerifier,
 )
 from uniassist.ai.models import (
@@ -35,12 +33,9 @@ class VerificationEngine:
         document_store: DocumentStore,
         *,
         semantic_verifier: SemanticVerifier | None = None,
-        use_nvidia_semantic_verifier: bool = False,
     ) -> None:
         self._document_store = document_store
-        self._semantic_verifier = semantic_verifier or self._build_semantic_verifier(
-            use_nvidia_semantic_verifier
-        )
+        self._semantic_verifier = semantic_verifier or DeterministicSemanticVerifier()
 
     def verify(
         self,
@@ -235,10 +230,10 @@ class VerificationEngine:
             errors.append("answer text is empty")
         if not candidate.claims:
             errors.append("no claims provided")
-        seen_ids: set[str] = set()
         for claim in candidate.claims:
             if not claim.text.strip():
                 errors.append("empty claim text")
+            seen_ids: set[str] = set()
             for chunk_id in claim.evidence_ids:
                 if chunk_id in seen_ids:
                     errors.append(f"duplicate citation id: {chunk_id}")
@@ -321,18 +316,6 @@ class VerificationEngine:
             record.status == DocumentStatus.ACTIVE
             and record.verification_state == VerificationState.VERIFIED
         )
-
-    def _build_semantic_verifier(
-        self,
-        use_nvidia_semantic_verifier: bool,
-    ) -> SemanticVerifier:
-        if use_nvidia_semantic_verifier or os.environ.get(
-            "UNIASSIST_USE_NVIDIA_VERIFIER", ""
-        ).strip() == "1":
-            from uniassist.ai.providers.nvidia import NVIDIAProvider
-
-            return NVIDIASemanticVerifier(NVIDIAProvider()._client)  # noqa: SLF001
-        return DeterministicSemanticVerifier()
 
     def _result(
         self,
