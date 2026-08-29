@@ -113,6 +113,19 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+Install optional features only when needed:
+
+```bash
+# ScrapeAI crawler support
+pip install -e ".[scrapeai]"
+
+# Telegram bot support
+pip install -e ".[telegram]"
+
+# Everything (crawler + telegram + appwrite)
+pip install -e ".[full,dev]"
+```
+
 ### Upload a document
 
 ```bash
