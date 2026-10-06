@@ -90,3 +90,19 @@ def test_json_index_persistence_round_trip(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.title == "Sample"
     assert loaded.status == DocumentStatus.DRAFT
+
+
+def test_local_blob_store_refuses_paths_outside_raw_dir(tmp_path) -> None:
+    from uniassist.persistence.blob_store import LocalBlobStore
+
+    outside = tmp_path / "secret.txt"
+    outside.write_text("secret", encoding="utf-8")
+    store = LocalBlobStore(tmp_path / "raw")
+    assert store.exists(str(outside)) is False
+    import pytest
+
+    with pytest.raises(ValueError):
+        store.read(str(outside))
+    with pytest.raises(ValueError):
+        store.delete(str(outside))
+    assert outside.exists()

@@ -11,6 +11,13 @@ class StorageConflictError(Exception):
     """Raised when stored content would overwrite a different file."""
 
 
+def _safe_filename(filename: str) -> str:
+    """Strip directories and unsafe characters from a URL-derived filename."""
+    name = Path(filename.replace("\\", "/")).name.replace(chr(0), "").strip()
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)
+    return safe.lstrip(".") or "document"
+
+
 class DocumentStorage:
     """Store downloaded documents on the local filesystem."""
 
@@ -42,7 +49,7 @@ class DocumentStorage:
         if existing is not None:
             return existing
 
-        destination = self.base_dir / f"{digest}__{filename}"
+        destination = self.base_dir / f"{digest}__{_safe_filename(filename)}"
         if destination.exists():
             existing_hash = sha256_hex(destination.read_bytes())
             if existing_hash != digest:

@@ -33,9 +33,19 @@ source .venv/bin/activate
 TRACE_WAS_ENABLED=0
 [[ $- == *x* ]] && TRACE_WAS_ENABLED=1
 set +x
-set -a
-source .env
-set +a
+# Load KEY=VALUE pairs as data; never evaluate .env contents as shell code.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%$'\r'}"
+  [[ -z "${line// }" || "$line" == \#* || "$line" != *=* ]] && continue
+  key="${line%%=*}"
+  value="${line#*=}"
+  key="${key// }"
+  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+  if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  export "$key=$value"
+done < .env
 (( TRACE_WAS_ENABLED )) && set -x
 mkdir -p "$LOG_DIR"
 
@@ -57,6 +67,7 @@ done
 
 if ! curl --silent --fail http://127.0.0.1:8001/health >/dev/null; then
   echo "FastAPI did not start. See $LOG_DIR/fastapi.log"
+  cleanup
   exit 1
 fi
 

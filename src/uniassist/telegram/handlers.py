@@ -120,34 +120,6 @@ async def text_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     message = update.effective_message
     user = update.effective_user
     chat = update.effective_chat
-    # #region agent log
-    try:
-        import json
-        import time
-
-        with open("/Users/cleo/Desktop/Uniassist/.cursor/debug-0bf777.log", "a") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "0bf777",
-                        "hypothesisId": "A",
-                        "location": "handlers.py:text_question",
-                        "message": "text_question_entered",
-                        "data": {
-                            "has_message": message is not None,
-                            "text_len": len((message.text or "").strip())
-                            if message
-                            else 0,
-                            "api_url": services.config.api_url,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     if message is None or user is None or chat is None:
         return
 
@@ -196,64 +168,8 @@ async def text_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await services.session_store.touch(user.id, request_id=result.request_id)
     body = sanitize_plain_text(format_ask_result(result))
-    # #region agent log
-    try:
-        import json
-        import time
-
-        with open("/Users/cleo/Desktop/Uniassist/.cursor/debug-0bf777.log", "a") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "0bf777",
-                        "hypothesisId": "D",
-                        "location": "handlers.py:text_question",
-                        "message": "ask_ok_sending_reply",
-                        "data": {
-                            "request_id": result.request_id,
-                            "status": result.status,
-                            "body_len": len(body),
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     for chunk in split_message(body, max_length=services.config.max_message_length):
-        try:
-            await message.reply_text(chunk)
-        except TelegramError as exc:
-            # #region agent log
-            try:
-                import json
-                import time
-
-                with open(
-                    "/Users/cleo/Desktop/Uniassist/.cursor/debug-0bf777.log", "a"
-                ) as _f:
-                    _f.write(
-                        json.dumps(
-                            {
-                                "sessionId": "0bf777",
-                                "hypothesisId": "C",
-                                "location": "handlers.py:text_question",
-                                "message": "answer_reply_failed",
-                                "data": {
-                                    "error_type": type(exc).__name__,
-                                    "error": str(exc)[:240],
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion
-            raise
+        await message.reply_text(chunk)
 
     logger.info(
         "telegram_answer request_id=%s status=%s verified=%s",
@@ -301,7 +217,4 @@ async def _reply_text(update: Update, text: str) -> None:
     message = update.effective_message
     if message is None:
         return
-    try:
-        await message.reply_text(text)
-    except TelegramError:
-        raise
+    await message.reply_text(text)

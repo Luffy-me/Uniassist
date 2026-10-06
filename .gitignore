@@ -6,6 +6,9 @@ dist/
 build/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
 .venv/
@@ -13,22 +16,39 @@ build/
 venv/
 env/
 
-# Secrets
+# Secrets (keep the committed *.example templates)
 .env
+.env.*
+!.env.example
 
-# IDE
+# Node / frontend build output
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# IDE / OS
 .idea/
 .vscode/
 *.swp
 .DS_Store
 .cursor/
+.claude/
 *.ses
-logs/
 
-# Generated data (keep directory structure via .gitkeep)
+# Logs and databases (may contain user data)
+logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.jsonl
+
+# Generated data. Real documents and indexes stay out of the repo; the
+# directory structure is kept via .gitkeep.
 data/raw/*
 data/processed/*
 data/metadata/*
 data/metadata/rag/*
-!data/*/.gitkeep
 data/imports/
+data/*.csv
+!data/*/.gitkeep

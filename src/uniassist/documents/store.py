@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Protocol
 
@@ -51,6 +52,7 @@ class JsonDocumentStore:
     ) -> None:
         self.raw_dir = raw_dir
         self.index_path = index_path
+        self._lock = threading.RLock()
         if blob_store is None:
             from uniassist.persistence.blob_store import LocalBlobStore
 
@@ -73,27 +75,29 @@ class JsonDocumentStore:
         return None
 
     def add_record(self, record: DocumentRecord) -> DocumentRecord:
-        records = self.list_records()
-        if any(item.document_id == record.document_id for item in records):
-            raise ValueError(f"document_id already exists: {record.document_id}")
-        records.append(record)
-        self._write_index(records)
-        return record
+        with self._lock:
+            records = self.list_records()
+            if any(item.document_id == record.document_id for item in records):
+                raise ValueError(f"document_id already exists: {record.document_id}")
+            records.append(record)
+            self._write_index(records)
+            return record
 
     def update_record(self, record: DocumentRecord) -> DocumentRecord:
-        records = self.list_records()
-        updated: list[DocumentRecord] = []
-        found = False
-        for item in records:
-            if item.document_id == record.document_id:
-                updated.append(record)
-                found = True
-            else:
-                updated.append(item)
-        if not found:
-            raise KeyError(f"document not found: {record.document_id}")
-        self._write_index(updated)
-        return record
+        with self._lock:
+            records = self.list_records()
+            updated: list[DocumentRecord] = []
+            found = False
+            for item in records:
+                if item.document_id == record.document_id:
+                    updated.append(record)
+                    found = True
+                else:
+                    updated.append(item)
+            if not found:
+                raise KeyError(f"document not found: {record.document_id}")
+            self._write_index(updated)
+            return record
 
     def get(self, document_id: str) -> DocumentRecord | None:
         for record in self.list_records():

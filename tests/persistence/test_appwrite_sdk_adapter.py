@@ -101,7 +101,7 @@ def test_sanitize_payload_removes_nulls_and_stringifies_paths() -> None:
 def test_encode_decode_blob_path_survives_pathlib() -> None:
     ref = "appwrite://raw/raw-bucket/abc123"
     encoded = encode_blob_path(ref)
-    assert str(encoded) == "uniassist-remote/raw/raw-bucket/abc123"
+    assert encoded.as_posix() == "uniassist-remote/raw/raw-bucket/abc123"
     assert decode_blob_path(encoded) == ref
 
 

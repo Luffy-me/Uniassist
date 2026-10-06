@@ -53,16 +53,25 @@ class LocalBlobStore:
         return str(destination)
 
     def read(self, blob_ref: str) -> bytes:
-        path = Path(blob_ref)
-        return path.read_bytes()
+        return self._contained(blob_ref).read_bytes()
 
     def exists(self, blob_ref: str) -> bool:
-        return Path(blob_ref).exists()
+        try:
+            return self._contained(blob_ref).exists()
+        except ValueError:
+            return False
 
     def delete(self, blob_ref: str) -> None:
-        path = Path(blob_ref)
+        path = self._contained(blob_ref)
         if path.exists():
             path.unlink()
+
+    def _contained(self, blob_ref: str) -> Path:
+        """Resolve *blob_ref* and refuse anything outside ``raw_dir``."""
+        resolved = Path(blob_ref).resolve()
+        if not resolved.is_relative_to(self.raw_dir.resolve()):
+            raise ValueError(f"blob reference escapes storage: {blob_ref}")
+        return resolved
 
     def _path_for_hash(self, digest: str) -> Path | None:
         for path in self.raw_dir.glob(f"{digest}__*"):

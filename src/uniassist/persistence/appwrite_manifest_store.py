@@ -6,7 +6,12 @@ import json
 import time
 
 from uniassist.persistence.appwrite_client import AppwriteClients
-from uniassist.persistence.appwrite_sdk_adapter import document_data, sanitize_payload
+from uniassist.persistence.appwrite_sdk_adapter import (
+    document_data,
+    is_conflict,
+    is_not_found,
+    sanitize_payload,
+)
 from uniassist.rag.index_metadata import IndexManifest
 
 MANIFEST_DOCUMENT_ID = "index_manifest"
@@ -26,8 +31,10 @@ class AppwriteIndexManifestStore:
                 collection_id=self._config.chunks_collection_id,
                 document_id=MANIFEST_DOCUMENT_ID,
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            if is_not_found(exc):
+                return None
+            raise
         raw = document_data(payload).get("manifest_json")
         if not raw:
             return None
@@ -53,7 +60,9 @@ class AppwriteIndexManifestStore:
                 document_id=MANIFEST_DOCUMENT_ID,
                 data=data,
             )
-        except Exception:
+        except Exception as exc:
+            if not is_conflict(exc):
+                raise
             self._clients.databases.update_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.chunks_collection_id,
@@ -68,7 +77,9 @@ class AppwriteIndexManifestStore:
                 collection_id=self._config.chunks_collection_id,
                 document_id=MANIFEST_DOCUMENT_ID,
             )
-        except Exception:
+        except Exception as exc:
+            if not is_not_found(exc):
+                raise
             return
         for _ in range(20):
             try:
@@ -77,7 +88,9 @@ class AppwriteIndexManifestStore:
                     collection_id=self._config.chunks_collection_id,
                     document_id=MANIFEST_DOCUMENT_ID,
                 )
-            except Exception:
-                return
+            except Exception as exc:
+                if is_not_found(exc):
+                    return
+                raise
             time.sleep(0.5)
         raise RuntimeError("Appwrite manifest deletion did not complete before rebuild")

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canActivate,
+  canArchive,
   canIndex,
   canProcess,
   canPublish,
@@ -116,5 +117,12 @@ describe("lifecycle helpers", () => {
       chunks_indexed: 3,
     });
     expect(steps.every((step) => step.state === "complete")).toBe(true);
+  });
+});
+
+describe("canArchive", () => {
+  it("allows archiving until the document is archived", () => {
+    expect(canArchive(baseDocument)).toBe(true);
+    expect(canArchive({ ...baseDocument, status: "archived" })).toBe(false);
   });
 });

@@ -119,30 +119,6 @@ def register_exception_handlers(app: FastAPI) -> None:
             detail=_validation_detail(exc),
         )
 
-    @app.exception_handler(ValueError)
-    async def value_error_handler(
-        request: Request,
-        exc: ValueError,
-    ) -> JSONResponse:
-        return _error_response(
-            request,
-            status_code=400,
-            error="bad_request",
-            detail=str(exc),
-        )
-
-    @app.exception_handler(KeyError)
-    async def key_error_handler(
-        request: Request,
-        exc: KeyError,
-    ) -> JSONResponse:
-        return _error_response(
-            request,
-            status_code=404,
-            error="not_found",
-            detail=str(exc),
-        )
-
     @app.exception_handler(Exception)
     async def internal_error_handler(
         request: Request,

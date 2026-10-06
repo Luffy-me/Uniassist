@@ -34,3 +34,12 @@ def test_storage_refuses_to_overwrite_different_content(tmp_path: Path) -> None:
 
     with pytest.raises(StorageConflictError):
         storage.store(content, "report.pdf")
+
+
+def test_storage_sanitizes_url_derived_filenames(tmp_path) -> None:
+    from uniassist.scrapeai.storage import DocumentStorage
+
+    storage = DocumentStorage(tmp_path / "store")
+    path = storage.store(b"data", "../../evil name.pdf")
+    assert path.parent == (tmp_path / "store")
+    assert ".." not in path.name

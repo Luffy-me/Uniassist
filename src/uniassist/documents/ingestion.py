@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -118,25 +118,25 @@ class DocumentIngestionService:
             return record
         if record.status == DocumentStatus.ARCHIVED:
             raise ValueError("archived documents cannot be activated")
-        updated = DocumentRecord(
-            document_id=record.document_id,
-            title=record.title,
-            filename=record.filename,
-            content_type=record.content_type,
-            sha256=record.sha256,
-            local_path=record.local_path,
-            uploaded_at=record.uploaded_at,
-            source=record.source,
-            source_type=record.source_type,
-            source_url=record.source_url,
-            effective_date=record.effective_date,
-            version=record.version,
+        updated = replace(
+            record,
             status=DocumentStatus.ACTIVE,
             verification_state=VerificationState.VERIFIED,
-            notes=record.notes,
-            storage_ref=record.storage_ref,
         )
         return self._store.update_record(updated)
+
+    def archive(self, document_id: str) -> DocumentRecord:
+        """Retire a document so it is no longer eligible for answers."""
+        record = self._require_record(document_id)
+        if record.status == DocumentStatus.ARCHIVED:
+            return record
+        return self._store.update_record(
+            replace(record, status=DocumentStatus.ARCHIVED)
+        )
+
+    def restore(self, record: DocumentRecord) -> DocumentRecord:
+        """Put back a previously read record (used to undo a failed publish)."""
+        return self._store.update_record(record)
 
     def list_documents(self) -> list[DocumentRecord]:
         return self._store.list_records()

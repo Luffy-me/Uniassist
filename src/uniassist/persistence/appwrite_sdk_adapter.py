@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import PurePath
 from typing import Any
+
+
+def is_not_found(exc: BaseException) -> bool:
+    """Return True for an Appwrite 404 (the only error treated as "absent")."""
+    return getattr(exc, "code", None) == 404
+
+
+def is_conflict(exc: BaseException) -> bool:
+    """Return True for an Appwrite 409 (resource already exists)."""
+    return getattr(exc, "code", None) == 409
 
 
 def sanitize_payload(data: dict[str, Any]) -> dict[str, Any]:
@@ -15,6 +26,8 @@ def sanitize_payload(data: dict[str, Any]) -> dict[str, Any]:
             sanitized[key] = value
         elif isinstance(value, (int, float)):
             sanitized[key] = value
+        elif isinstance(value, PurePath):
+            sanitized[key] = value.as_posix()
         else:
             sanitized[key] = str(value)
     return sanitized

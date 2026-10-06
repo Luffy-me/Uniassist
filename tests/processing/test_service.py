@@ -174,25 +174,60 @@ def test_failed_mineru_preserves_raw_file(tmp_corpus) -> None:
     assert record.local_path.read_bytes() == before
 
 
-def test_docx_is_unsupported_when_mineru_unavailable(
-    tmp_corpus,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _without_mineru(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MINERU_EXECUTABLE", raising=False)
     monkeypatch.setattr(
         "uniassist.processing.processors.mineru.mineru_cli_path",
         lambda: None,
     )
+
+
+def test_invalid_docx_fails_with_clear_error(
+    tmp_corpus,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _without_mineru(monkeypatch)
     ingestion, processing = tmp_corpus
     docx_path = tmp_path / "sample.docx"
-    docx_path.write_bytes(b"PK\x03\x04minimal docx placeholder")
+    docx_path.write_bytes(b"PKminimal docx placeholder")
     record = make_active_record(ingestion, docx_path)
     result = processing.process_document(record.document_id)
 
-    assert result.status == ProcessingStatus.UNSUPPORTED
-    assert result.processor == "mineru"
+    assert result.status == ProcessingStatus.FAILED
     assert "DOCX" in (result.error or "")
+
+
+def test_docx_is_processed_without_mineru(
+    tmp_corpus,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zipfile
+
+    _without_mineru(monkeypatch)
+    ingestion, processing = tmp_corpus
+    body = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml'
+        '/2006/main"><w:body><w:p><w:r><w:t>Academic leave rules</w:t></w:r></w:p>'
+        "<w:p><w:r><w:t>Apply at the dean office.</w:t></w:r></w:p>"
+        "</w:body></w:document>"
+    )
+    docx_path = tmp_path / "real.docx"
+    with zipfile.ZipFile(docx_path, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", body)
+    record = make_active_record(ingestion, docx_path)
+    result = processing.process_document(record.document_id)
+
+    assert result.status == ProcessingStatus.COMPLETED
+    assert result.processor == "docx_text"
+    normalized = processing.get_normalized(record.document_id)
+    assert normalized is not None
+    assert [block.text for block in normalized.blocks] == [
+        "Academic leave rules",
+        "Apply at the dean office.",
+    ]
 
 
 def test_eligibility_requires_active_and_verified(tmp_path: Path) -> None:
@@ -231,7 +266,8 @@ def test_unsupported_extension_returns_unsupported_status(
     tmp_path: Path,
 ) -> None:
     ingestion, processing = tmp_corpus
-    html_path = tmp_path / "page.html"
+    html_path = tmp_path / "raw" / "page.html"
+    html_path.parent.mkdir(exist_ok=True)
     html_path.write_text("<html></html>", encoding="utf-8")
     record = build_record(
         document_id="html-1",

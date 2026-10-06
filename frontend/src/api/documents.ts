@@ -36,9 +36,7 @@ export async function uploadDocument(input: UploadDocumentInput) {
   formData.append("file", input.file);
   formData.append("title", input.title);
   formData.append("source", input.source);
-  if (input.source_url) {
-    formData.append("source_url", input.source_url);
-  }
+  formData.append("source_url", input.source_url);
   if (input.version) {
     formData.append("version", input.version);
   }
@@ -68,6 +66,12 @@ export async function processDocument(documentId: string) {
 
 export async function indexDocument(documentId: string) {
   return apiRequest<IndexResponse>(`/documents/${documentId}/index`, {
+    method: "POST",
+  });
+}
+
+export async function archiveDocument(documentId: string) {
+  return apiRequest<Document>(`/documents/${documentId}/archive`, {
     method: "POST",
   });
 }

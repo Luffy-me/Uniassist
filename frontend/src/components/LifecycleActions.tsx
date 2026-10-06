@@ -3,14 +3,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import {
   activateDocument,
+  archiveDocument,
   indexDocument,
   processDocument,
   publishDocument,
 } from "@/api/documents";
-import { ApiError } from "@/api/client";
+import { ApiError, type ApiResult } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import {
   canActivate,
+  canArchive,
   canIndex,
   canProcess,
   canPublish,
@@ -22,139 +24,125 @@ interface LifecycleActionsProps {
   onActionComplete?: (requestId: string) => void;
 }
 
+interface ActionDefinition {
+  label: string;
+  confirm: string;
+  enabled: boolean;
+  primary?: boolean;
+  destructive?: boolean;
+  run: () => Promise<ApiResult<unknown>>;
+}
+
+function describeError(err: unknown): { message: string; requestId: string } {
+  if (err instanceof ApiError) {
+    return { message: err.message, requestId: err.requestId };
+  }
+  const message =
+    err instanceof Error ? err.message : "The request could not be completed.";
+  return { message, requestId: "unknown" };
+}
+
 export function LifecycleActions({
   document,
   onActionComplete,
 }: LifecycleActionsProps) {
   const queryClient = useQueryClient();
-  const [error, setError] = useState<ApiError | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    requestId: string;
+  } | null>(null);
   const [lastRequestId, setLastRequestId] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
 
-  const invalidate = async (documentId: string) => {
+  const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["documents"] });
-    await queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+    await queryClient.invalidateQueries({
+      queryKey: ["document", document.document_id],
+    });
+    await queryClient.invalidateQueries({ queryKey: ["status"] });
   };
 
-  const publishMutation = useMutation({
-    mutationFn: () => publishDocument(document.document_id),
+  const mutation = useMutation({
+    mutationFn: (action: ActionDefinition) => action.run(),
+    onMutate: (action) => setActiveLabel(action.label),
     onSuccess: async ({ requestId }) => {
       setError(null);
       setLastRequestId(requestId);
-      await invalidate(document.document_id);
+      await refresh();
       onActionComplete?.(requestId);
     },
-    onError: (err: unknown) => {
-      setError(err instanceof ApiError ? err : null);
+    onError: async (err: unknown) => {
+      setError(describeError(err));
+      // A failed step may still have changed server state (e.g. processing).
+      await refresh();
     },
+    onSettled: () => setActiveLabel(null),
   });
 
-  const activateMutation = useMutation({
-    mutationFn: () => activateDocument(document.document_id),
-    onSuccess: async ({ requestId }) => {
-      setError(null);
-      setLastRequestId(requestId);
-      await invalidate(document.document_id);
-      onActionComplete?.(requestId);
+  const id = document.document_id;
+  const actions: ActionDefinition[] = [
+    {
+      label: "Publish",
+      confirm:
+        "Publish this document? It will be activated, processed, and indexed for student answers.",
+      enabled: canPublish(document),
+      primary: true,
+      run: () => publishDocument(id),
     },
-    onError: (err: unknown) => {
-      setError(err instanceof ApiError ? err : null);
+    {
+      label: "Activate",
+      confirm: "Activate this document?",
+      enabled: canActivate(document),
+      run: () => activateDocument(id),
     },
-  });
-
-  const processMutation = useMutation({
-    mutationFn: () => processDocument(document.document_id),
-    onSuccess: async ({ requestId }) => {
-      setError(null);
-      setLastRequestId(requestId);
-      await invalidate(document.document_id);
-      onActionComplete?.(requestId);
+    {
+      label: "Process",
+      confirm: "Process this document?",
+      enabled: canProcess(document),
+      run: () => processDocument(id),
     },
-    onError: (err: unknown) => {
-      setError(err instanceof ApiError ? err : null);
+    {
+      label: "Index",
+      confirm: "Index this document for retrieval?",
+      enabled: canIndex(document),
+      run: () => indexDocument(id),
     },
-  });
-
-  const indexMutation = useMutation({
-    mutationFn: () => indexDocument(document.document_id),
-    onSuccess: async ({ requestId }) => {
-      setError(null);
-      setLastRequestId(requestId);
-      await invalidate(document.document_id);
-      onActionComplete?.(requestId);
+    {
+      label: "Archive",
+      confirm:
+        "Archive this document? Students will no longer receive answers based on it.",
+      enabled: canArchive(document),
+      destructive: true,
+      run: () => archiveDocument(id),
     },
-    onError: (err: unknown) => {
-      setError(err instanceof ApiError ? err : null);
-    },
-  });
-
-  const pending =
-    publishMutation.isPending ||
-    activateMutation.isPending ||
-    processMutation.isPending ||
-    indexMutation.isPending;
+  ];
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        <Button
-          disabled={!canPublish(document) || pending}
-          onClick={() => {
-            if (
-              window.confirm(
-                "Publish this document? It will be activated, processed, and indexed for student answers.",
-              )
-            ) {
-              publishMutation.mutate();
+        {actions.map((action) => (
+          <Button
+            key={action.label}
+            variant={
+              action.primary
+                ? "default"
+                : action.destructive
+                  ? "destructive"
+                  : "outline"
             }
-          }}
-        >
-          {publishMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : null}
-          Publish
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!canActivate(document) || pending}
-          onClick={() => {
-            if (window.confirm("Activate this document?")) {
-              activateMutation.mutate();
-            }
-          }}
-        >
-          {activateMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : null}
-          Activate
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!canProcess(document) || pending}
-          onClick={() => {
-            if (window.confirm("Process this document?")) {
-              processMutation.mutate();
-            }
-          }}
-        >
-          {processMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : null}
-          Process
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!canIndex(document) || pending}
-          onClick={() => {
-            if (window.confirm("Index this document for retrieval?")) {
-              indexMutation.mutate();
-            }
-          }}
-        >
-          {indexMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : null}
-          Index
-        </Button>
+            disabled={!action.enabled || mutation.isPending}
+            onClick={() => {
+              if (window.confirm(action.confirm)) {
+                mutation.mutate(action);
+              }
+            }}
+          >
+            {mutation.isPending && activeLabel === action.label ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            {action.label}
+          </Button>
+        ))}
       </div>
       {error ? (
         <p className="text-sm text-destructive">

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 from fastapi import APIRouter, Request
@@ -17,6 +18,8 @@ from uniassist.api.schemas import (
     ask_response_from_refusal,
     ask_response_from_verified,
 )
+
+logger = logging.getLogger("uniassist.api")
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 
@@ -41,7 +44,10 @@ def ask_question(
     try:
         result = services.pipeline.ask(question)
     except GenerationError as exc:
-        raise ServiceUnavailableError(str(exc)) from exc
+        logger.error("ask_generation_failed request_id=%s error=%s", request_id, exc)
+        raise ServiceUnavailableError(
+            "The answer service is temporarily unavailable. Please try again later."
+        ) from exc
 
     total_ms = (time.perf_counter() - started) * 1000
     timings = AskTimingsResponse(total_latency_ms=total_ms)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
@@ -59,6 +60,11 @@ def create_app(
         version=__version__,
         description="REST API for the UniAssist university knowledge assistant.",
     )
+    if not resolved_settings.admin_secret:
+        logging.getLogger("uniassist.api").warning(
+            "UNIASSIST_ADMIN_SECRET is not set; document routes accept "
+            "loopback clients only"
+        )
     app.state.settings = resolved_settings
     app.state.services = services
 
@@ -69,9 +75,10 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(resolved_settings.cors_origins),
-            allow_credentials=True,
+            allow_credentials=False,
             allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["*"],
+            allow_headers=["Content-Type", "X-Request-ID", "X-Admin-Secret"],
+            expose_headers=["X-Request-ID"],
         )
 
     app.include_router(health.router)
@@ -81,8 +88,6 @@ def create_app(
 
 
 def _log_request(request: Request, status_code: int, duration_ms: float) -> None:
-    import logging
-
     logger = logging.getLogger("uniassist.api")
     logger.info(
         "api_request request_id=%s method=%s path=%s status=%s duration_ms=%.1f",

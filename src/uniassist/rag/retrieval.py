@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from uniassist.core.text import conflicting_durations
 from uniassist.documents.models import DocumentRecord
 from uniassist.rag.embedding_factory import (
     create_embedding_provider,
@@ -40,6 +40,7 @@ class RetrievalResult:
     retrieval_latency_ms: float
     top_score: float | None
     potentially_conflicting: bool = False
+    records: dict[str, DocumentRecord] = field(default_factory=dict)
 
 
 class Retriever:
@@ -59,6 +60,14 @@ class Retriever:
         self._indexing_service = indexing_service
         self._require_eligibility = require_eligibility
         self._config = config or RetrievalConfig()
+
+    @property
+    def indexing_service(self) -> IndexingService | None:
+        return self._indexing_service
+
+    @property
+    def embedding_provider(self) -> EmbeddingProvider:
+        return self._embedding_provider
 
     @classmethod
     def default(
@@ -137,6 +146,7 @@ class Retriever:
             retrieval_latency_ms=latency_ms,
             top_score=top_score,
             potentially_conflicting=conflicting,
+            records=document_records,
         )
 
     def _apply_version_preference(
@@ -147,33 +157,17 @@ class Retriever:
         if not results or not records:
             return results
 
-        def authority_key(item: RetrievedChunk) -> tuple:
+        def authority_ordinal(item: RetrievedChunk) -> int:
             record = records.get(item.chunk.document_id)
             effective = record.effective_date if record else None
-            version = record.version if record else ""
-            uploaded = record.uploaded_at if record else None
-            return (
-                effective or date.min,
-                version or "",
-                uploaded or item.chunk.chunk_id,
-            )
+            return effective.toordinal() if effective else 0
 
-        by_document: dict[str, list[RetrievedChunk]] = {}
-        for item in results:
-            by_document.setdefault(item.chunk.document_id, []).append(item)
-
-        preferred_documents = {
-            document_id: max(items, key=authority_key).chunk.document_id
-            for document_id, items in by_document.items()
-        }
-        del preferred_documents  # reserved for future supersession rules
-
+        # Relevance decides the order; the newer document only wins near-ties.
         return sorted(
             results,
             key=lambda item: (
-                authority_key(item)[0].toordinal()
-                if authority_key(item)[0] != date.min
-                else 0,
+                round(item.similarity_score / _TIE_BAND),
+                authority_ordinal(item),
                 item.similarity_score,
             ),
             reverse=True,
@@ -184,17 +178,15 @@ class Retriever:
         results: list[RetrievedChunk],
         records: dict[str, DocumentRecord],
     ) -> bool:
-        durations: set[str] = set()
-        for item in results:
-            record = records.get(item.chunk.document_id)
-            if record is None:
-                continue
-            hint = _duration_hint(item.chunk.text)
-            if hint is not None:
-                durations.add(hint)
-        return len(durations) > 1
+        items = [
+            (item.chunk.document_id, item.chunk.text)
+            for item in results
+            if item.chunk.document_id in records
+        ]
+        return bool(conflicting_durations(items))
 
 
+_TIE_BAND = 0.05
 _VECTOR_WEIGHT = 0.35
 _LEXICAL_WEIGHT = 0.65
 _RETRIEVAL_STOPWORDS = {
@@ -298,7 +290,7 @@ def _lexical_score(query: str, text: str, title: str) -> float:
 
 
 def _retrieval_terms(query: str) -> list[str]:
-    tokens = re.findall(r"[a-z0-9@.-]+", query.lower())
+    tokens = re.findall(r"[^\W_][\w@.-]*", query.lower())
     terms: list[str] = []
     seen: set[str] = set()
     for token in tokens:
@@ -310,8 +302,3 @@ def _retrieval_terms(query: str) -> list[str]:
                 seen.add(candidate)
                 terms.append(candidate)
     return terms
-
-
-def _duration_hint(text: str) -> str | None:
-    match = re.search(r"\b(\d+)\s*(month|months|year|years)\b", text.lower())
-    return match.group(0) if match else None

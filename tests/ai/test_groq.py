@@ -90,3 +90,60 @@ def test_request_includes_a_stable_user_agent(monkeypatch: pytest.MonkeyPatch) -
     client.chat_completion([{"role": "user", "content": "hello"}])
 
     assert captured["headers"]["User-agent"] == "UniAssist/1.0"
+
+
+def test_transient_groq_errors_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import urllib.error
+
+    from uniassist.ai.providers import groq
+
+    calls = {"count": 0}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"ok": true}'
+
+    def fake_urlopen(request, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise urllib.error.HTTPError(
+                request.full_url, 429, "slow down", {}, io.BytesIO(b"rate limited")
+            )
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(groq, "_BACKOFF_SECONDS", 0.0)
+    result = groq._request_json(
+        url="https://example.test", api_key="k", timeout_seconds=1, payload={}
+    )
+    assert result == {"ok": True}
+    assert calls["count"] == 3
+
+
+def test_client_errors_are_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+    import urllib.error
+
+    from uniassist.ai.providers import groq
+
+    calls = {"count": 0}
+
+    def fake_urlopen(request, **_kwargs):
+        calls["count"] += 1
+        raise urllib.error.HTTPError(
+            request.full_url, 400, "bad", {}, io.BytesIO(b"bad request")
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(groq.GroqAPIError):
+        groq._request_json(
+            url="https://example.test", api_key="k", timeout_seconds=1, payload={}
+        )
+    assert calls["count"] == 1

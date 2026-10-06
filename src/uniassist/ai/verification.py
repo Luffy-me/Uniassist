@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import re
 import time
-from datetime import date
 
 from uniassist.ai.claim_verification import (
     ClaimAssessment,
@@ -21,8 +19,11 @@ from uniassist.ai.models import (
     RefusalReason,
     VerificationResult,
 )
+from uniassist.core.text import conflicting_durations, keywords, numbers, overlap
 from uniassist.documents.models import DocumentRecord, DocumentStatus, VerificationState
 from uniassist.documents.store import DocumentStore
+
+_MIN_ANSWER_COVERAGE = 0.5
 
 
 class VerificationEngine:
@@ -66,6 +67,19 @@ class VerificationEngine:
                 contradictions=(),
                 assessments=assessments,
                 refusal=RefusalReason.INVALID_CITATION,
+                started=started,
+            )
+
+        coverage_errors = self._answer_coverage_errors(candidate)
+        if coverage_errors:
+            return self._result(
+                verified=False,
+                supported=supported,
+                unsupported=coverage_errors,
+                citation_errors=[],
+                contradictions=(),
+                assessments=assessments,
+                refusal=RefusalReason.UNSUPPORTED_CLAIM,
                 started=started,
             )
 
@@ -242,6 +256,23 @@ class VerificationEngine:
                     errors.append(f"unknown evidence id: {chunk_id}")
         return errors
 
+    def _answer_coverage_errors(self, candidate: CandidateAnswer) -> list[str]:
+        """Ensure the text shown to the student is backed by the checked claims."""
+        claims_text = " ".join(claim.text for claim in candidate.claims)
+        errors: list[str] = []
+        extra_numbers = numbers(candidate.answer_text) - numbers(claims_text)
+        if extra_numbers:
+            errors.append(
+                f"answer states figures not covered by claims: {sorted(extra_numbers)}"
+            )
+        answer_terms = keywords(candidate.answer_text)
+        if (
+            answer_terms
+            and overlap(answer_terms, keywords(claims_text)) < _MIN_ANSWER_COVERAGE
+        ):
+            errors.append("answer text is not covered by the cited claims")
+        return errors
+
     def _citation_validation(
         self,
         candidate: CandidateAnswer,
@@ -264,52 +295,15 @@ class VerificationEngine:
         evidence: list[EvidenceItem],
         eligible_records: dict[str, DocumentRecord],
     ) -> list[str]:
-        by_topic: dict[str, list[tuple[EvidenceItem, DocumentRecord]]] = {}
-        for item in evidence:
-            record = eligible_records.get(item.document_id)
-            if record is None:
-                continue
-            topic = self._topic_key(item.text)
-            by_topic.setdefault(topic, []).append((item, record))
-
-        conflicts: list[str] = []
-        for topic, entries in by_topic.items():
-            if len(entries) < 2:
-                continue
-            durations = {
-                self._duration_hint(entry[0].text)
-                for entry in entries
-                if self._duration_hint(entry[0].text) is not None
-            }
-            if len(durations) > 1:
-                active_versions = {entry[1].document_id for entry in entries}
-                if len(active_versions) > 1:
-                    preferred = self._preferred_record(entries)
-                    conflicts.append(
-                        f"Conflicting duration statements for topic '{topic}' "
-                        f"across active documents (preferred: {preferred.title})."
-                    )
-        return conflicts
-
-    def _topic_key(self, text: str) -> str:
-        keywords = sorted(_keywords(text))
-        return " ".join(keywords[:4]) if keywords else text[:40].lower()
-
-    def _duration_hint(self, text: str) -> str | None:
-        match = re.search(r"\b(\d+)\s*(month|months|year|years)\b", text.lower())
-        return match.group(0) if match else None
-
-    def _preferred_record(
-        self,
-        entries: list[tuple[EvidenceItem, DocumentRecord]],
-    ) -> DocumentRecord:
-        def sort_key(entry: tuple[EvidenceItem, DocumentRecord]) -> tuple:
-            _, record = entry
-            effective = record.effective_date or date.min
-            version = record.version or ""
-            return (effective, version, record.uploaded_at)
-
-        return max(entries, key=sort_key)[1]
+        items = [
+            (item.document_id, item.text)
+            for item in evidence
+            if item.document_id in eligible_records
+        ]
+        return [
+            f"Conflicting duration statements across active documents ({pair})."
+            for pair in conflicting_durations(items)
+        ]
 
     def _is_eligible(self, record: DocumentRecord) -> bool:
         return (
@@ -370,35 +364,3 @@ class VerificationEngine:
         if contradictions:
             parts.append(f"{len(contradictions)} contradiction(s)")
         return "; ".join(parts) or "verification failed"
-
-
-def _keywords(text: str) -> set[str]:
-    tokens = re.findall(r"[a-z0-9]+", text.lower())
-    stopwords = {
-        "a",
-        "an",
-        "the",
-        "and",
-        "or",
-        "to",
-        "of",
-        "in",
-        "on",
-        "for",
-        "is",
-        "are",
-        "may",
-        "be",
-        "by",
-        "with",
-        "as",
-        "at",
-        "it",
-        "this",
-        "that",
-        "their",
-        "students",
-        "student",
-        "university",
-    }
-    return {token for token in tokens if token not in stopwords and len(token) > 2}

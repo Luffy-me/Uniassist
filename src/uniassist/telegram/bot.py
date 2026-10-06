@@ -88,34 +88,6 @@ async def _handle_error(
 ) -> None:
     """Record handler failures rather than silently dropping an update."""
     update_id = getattr(update, "update_id", "-")
-    err = context.error
-    # #region agent log
-    try:
-        import json
-        import time
-
-        with open("/Users/cleo/Desktop/Uniassist/.cursor/debug-0bf777.log", "a") as _f:
-            _f.write(
-                json.dumps(
-                    {
-                        "sessionId": "0bf777",
-                        "hypothesisId": "A",
-                        "location": "bot.py:_handle_error",
-                        "message": "telegram_update_failed",
-                        "data": {
-                            "update_id": str(update_id),
-                            "error_type": type(err).__name__ if err else None,
-                            "error": str(err)[:240] if err else None,
-                            "has_update": update is not None and update != "-",
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     logger.error(
         "telegram_update_failed update_id=%s",
         update_id,

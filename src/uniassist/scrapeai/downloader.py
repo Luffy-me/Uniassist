@@ -55,6 +55,20 @@ def header_value(response: HttpResponse, name: str) -> str | None:
     return str(raw)
 
 
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _parse_content_length(value: str | None) -> int | None:
+    """Parse a Content-Length header, ignoring malformed values."""
+    if value is None:
+        return None
+    try:
+        parsed = int(value.strip())
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
+
+
 class DocumentDownloader:
     """Download and store approved document candidates."""
 
@@ -85,9 +99,13 @@ class DocumentDownloader:
             header_value(response, "Content-Type"),
         )
         content_length_header = header_value(response, "Content-Length")
-        content_length = (
-            int(content_length_header) if content_length_header is not None else None
-        )
+        content_length = _parse_content_length(content_length_header)
+        if len(content) > MAX_DOWNLOAD_BYTES:
+            return DownloadResult(
+                metadata=None,
+                success=False,
+                error=f"document exceeds {MAX_DOWNLOAD_BYTES} bytes: {candidate.url}",
+            )
 
         existing_path = self._storage.path_for_hash(
             self._storage_hash(content)

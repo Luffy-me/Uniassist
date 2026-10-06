@@ -7,7 +7,7 @@ import os
 from fastapi import APIRouter, Request
 
 from uniassist import __version__
-from uniassist.api.dependencies import RequestIdDep, ServicesDep
+from uniassist.api.dependencies import AdminDep, RequestIdDep, ServicesDep
 from uniassist.api.schemas import HealthResponse, StatusResponse
 from uniassist.persistence.config import AppwriteConfig, resolve_storage_backend
 
@@ -24,6 +24,7 @@ def status(
     request: Request,
     services: ServicesDep,
     request_id: RequestIdDep,
+    _: AdminDep,
 ) -> StatusResponse:
     del request
     stats = services.indexing.stats()

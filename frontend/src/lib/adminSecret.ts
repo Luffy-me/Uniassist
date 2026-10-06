@@ -7,7 +7,7 @@ export function getAdminSecret(): string {
       return stored;
     }
   }
-  return (import.meta.env.VITE_ADMIN_SECRET ?? "").trim();
+  return "";
 }
 
 export function setSessionAdminSecret(secret: string): void {

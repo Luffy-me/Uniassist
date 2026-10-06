@@ -22,22 +22,20 @@ export function DocumentsPage() {
   >("all");
 
   const documentsQuery = useQuery({
-    queryKey: ["documents"],
-    queryFn: async () => (await listDocuments()).data,
+    queryKey: ["documents", statusFilter, verificationFilter],
+    queryFn: async () =>
+      (
+        await listDocuments({
+          status: statusFilter === "all" ? undefined : statusFilter,
+          verification_state:
+            verificationFilter === "all" ? undefined : verificationFilter,
+        })
+      ).data,
   });
 
   const filteredDocuments = useMemo(() => {
     const query = search.trim().toLowerCase();
     return (documentsQuery.data ?? []).filter((document) => {
-      if (statusFilter !== "all" && document.status !== statusFilter) {
-        return false;
-      }
-      if (
-        verificationFilter !== "all" &&
-        document.verification_state !== verificationFilter
-      ) {
-        return false;
-      }
       if (!query) {
         return true;
       }
@@ -48,7 +46,7 @@ export function DocumentsPage() {
         (document.version ?? "").toLowerCase().includes(query)
       );
     });
-  }, [documentsQuery.data, search, statusFilter, verificationFilter]);
+  }, [documentsQuery.data, search]);
 
   if (documentsQuery.isLoading) {
     return <LoadingState label="Loading documents..." />;

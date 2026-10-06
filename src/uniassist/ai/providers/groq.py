@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -65,7 +66,7 @@ class GroqClientConfig:
                 os.environ.get("GROQ_BASE_URL", "").strip().rstrip("/")
                 or GROQ_BASE_URL
             ),
-            timeout_seconds=float(os.environ.get("GROQ_TIMEOUT_SECONDS", "60")),
+            timeout_seconds=_float_env("GROQ_TIMEOUT_SECONDS", 60.0),
         )
 
 
@@ -86,7 +87,7 @@ class GroqClient:
         schema_name: str = "answer",
         response_format_json: bool = True,
         temperature: float = 0.2,
-        max_tokens: int = 700,
+        max_tokens: int = 2000,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self._config.model,
@@ -259,7 +260,45 @@ def _strict_json_schema(schema_name: str) -> dict[str, Any]:
     }
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise GroqConfigError(f"{name} must be a number, got {raw!r}") from exc
+
+
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3
+_BACKOFF_SECONDS = 1.0
+
+
 def _request_json(
+    *, url: str, api_key: str, timeout_seconds: float, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """POST to Groq, retrying transient failures with exponential backoff."""
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            return _request_json_once(
+                url=url,
+                api_key=api_key,
+                timeout_seconds=timeout_seconds,
+                payload=payload,
+            )
+        except _TransientGroqError as exc:
+            if attempt == _MAX_ATTEMPTS - 1:
+                raise GroqAPIError(str(exc)) from exc.__cause__
+            time.sleep(_BACKOFF_SECONDS * (2**attempt))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+class _TransientGroqError(GroqAPIError):
+    """A retryable Groq failure."""
+
+
+def _request_json_once(
     *, url: str, api_key: str, timeout_seconds: float, payload: dict[str, Any]
 ) -> dict[str, Any]:
     request = urllib.request.Request(
@@ -277,9 +316,11 @@ def _request_json(
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise GroqAPIError(f"Groq API error {exc.code}: {body[:500]}") from exc
+        transient = exc.code in _RETRYABLE_STATUS
+        error_cls = _TransientGroqError if transient else GroqAPIError
+        raise error_cls(f"Groq API error {exc.code}: {body[:500]}") from exc
     except (TimeoutError, urllib.error.URLError) as exc:
-        raise GroqAPIError(f"Groq API request failed: {exc}") from exc
+        raise _TransientGroqError(f"Groq API request failed: {exc}") from exc
     try:
         parsed = json.loads(body)
     except json.JSONDecodeError as exc:

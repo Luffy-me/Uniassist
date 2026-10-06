@@ -180,6 +180,16 @@ class IndexingService:
             indexed_at=datetime.now(UTC),
         )
 
+    def remove_document(self, document_id: str) -> int:
+        """Drop a document's chunks from the index; return how many were removed."""
+        removed = self._vector_store.delete_document(document_id)
+        if self._metadata_path is not None:
+            entries = self._load_index_metadata()
+            if entries.pop(document_id, None) is not None:
+                self._write_index_metadata(entries)
+        self._persist_vector_store()
+        return removed
+
     def index_all_eligible(self, *, rebuild: bool = False) -> list[IndexResult]:
         """Index every eligible, processed document."""
         results: list[IndexResult] = []

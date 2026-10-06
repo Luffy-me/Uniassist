@@ -16,6 +16,8 @@ from uniassist.persistence.appwrite_paths import (
 )
 from uniassist.persistence.appwrite_sdk_adapter import (
     document_data,
+    is_conflict,
+    is_not_found,
     iter_collection_documents,
     sanitize_payload,
 )
@@ -63,8 +65,10 @@ class AppwriteDocumentStore:
                 collection_id=self._config.documents_collection_id,
                 document_id=document_id,
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            if is_not_found(exc):
+                return None
+            raise
         return _record_from_payload(document_data(payload))
 
     def list_records(self) -> list[DocumentRecord]:
@@ -94,7 +98,9 @@ class AppwriteDocumentStore:
                 document_id=record.document_id,
                 data=payload,
             )
-        except Exception:
+        except Exception as exc:
+            if not is_conflict(exc):
+                raise
             self._clients.databases.update_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.documents_collection_id,

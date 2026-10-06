@@ -10,6 +10,7 @@ from uniassist.core.hashing import sha256_hex
 from uniassist.documents.validation import sanitize_filename
 from uniassist.persistence.appwrite_client import AppwriteClients
 from uniassist.persistence.appwrite_paths import decode_blob_path, normalize_blob_ref
+from uniassist.persistence.appwrite_sdk_adapter import is_not_found
 from uniassist.persistence.blob_store import DocumentBlobStore
 
 
@@ -46,15 +47,18 @@ class AppwriteBlobStore:
         try:
             self.clients.storage.get_file(bucket_id, file_id)
             return True
-        except Exception:
-            return False
+        except Exception as exc:
+            if is_not_found(exc):
+                return False
+            raise
 
     def delete(self, blob_ref: str) -> None:
         bucket_id, file_id = _parse_blob_ref(blob_ref)
         try:
             self.clients.storage.delete_file(bucket_id, file_id)
-        except Exception:
-            return
+        except Exception as exc:
+            if not is_not_found(exc):
+                raise
 
 
 def _file_id_for_digest(digest: str) -> str:

@@ -75,6 +75,10 @@ export function canPublish(document: Document): boolean {
   return true;
 }
 
+export function canArchive(document: Document): boolean {
+  return document.status !== "archived";
+}
+
 export function canProcess(document: Document): boolean {
   return (
     document.status === "active" &&

@@ -11,6 +11,8 @@ from uniassist.persistence.appwrite_client import AppwriteClients
 from uniassist.persistence.appwrite_paths import decode_blob_path, encode_blob_path
 from uniassist.persistence.appwrite_sdk_adapter import (
     document_data,
+    is_conflict,
+    is_not_found,
     iter_collection_documents,
     sanitize_payload,
 )
@@ -63,6 +65,10 @@ class AppwriteProcessingStore:
         )
         return NormalizedDocument.from_dict(data)
 
+    def read_artifact(self, blob_ref: str) -> bytes:
+        """Read a stored processed artifact by its ``appwrite://`` reference."""
+        return self._artifact_store.read(blob_ref)
+
     def save_result(self, result: ProcessingResult) -> ProcessingResult:
         payload = sanitize_payload(result.to_dict())
         payload["metadata_json"] = json.dumps(result.to_dict(), ensure_ascii=False)
@@ -73,7 +79,9 @@ class AppwriteProcessingStore:
                 document_id=result.document_id,
                 data=payload,
             )
-        except Exception:
+        except Exception as exc:
+            if not is_conflict(exc):
+                raise
             self._clients.databases.update_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.processing_collection_id,
@@ -89,8 +97,10 @@ class AppwriteProcessingStore:
                 collection_id=self._config.processing_collection_id,
                 document_id=document_id,
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            if is_not_found(exc):
+                return None
+            raise
         return _result_from_payload(document_data(payload))
 
     def list_results(self) -> list[ProcessingResult]:

@@ -14,8 +14,12 @@ from uniassist.processing.models import (
     ProcessingStatus,
 )
 from uniassist.processing.processors.base import ProcessorContext
+from uniassist.processing.processors.docx_text import (
+    DocxTextProcessor,
+    EmptyDocxError,
+    InvalidDocxError,
+)
 from uniassist.processing.processors.mineru import (
-    MinerUNotInstalledError,
     MinerUProcessor,
     mineru_version,
 )
@@ -52,6 +56,10 @@ class DocumentProcessingService:
         self._processing_store = processing_store
         self._router = router or ProcessorRouter()
         self._require_eligibility = require_eligibility
+
+    @property
+    def processing_store(self) -> ProcessingStore:
+        return self._processing_store
 
     @classmethod
     def default(
@@ -137,7 +145,7 @@ class DocumentProcessingService:
                 input_path=input_path,
                 normalized=normalized,
             )
-        except (MinerUNotInstalledError, Exception) as exc:
+        except Exception as exc:
             if processor.name == "mineru":
                 fallback = self._pdf_text_fallback(
                     record,
@@ -214,20 +222,39 @@ class DocumentProcessingService:
                     error=str(exc),
                 )
 
-        messages = {
-            "mineru_not_installed": (
-                "DOCX processing requires MinerU, which is not installed. "
-                "Install with: pip install 'mineru[pipeline]' (Python >=3.10,<3.14)."
+        return self._process_docx_text(record, input_path=input_path)
+
+    def _process_docx_text(
+        self,
+        record: DocumentRecord,
+        *,
+        input_path: Path,
+    ) -> ProcessingResult:
+        """Extract DOCX text with the built-in reader when MinerU cannot."""
+        processor = DocxTextProcessor()
+        context = ProcessorContext(
+            record=record,
+            output_dir=self._processing_store.output_dir_for(
+                record.document_id,
+                record.sha256,
             ),
-            "docx_deferred": (
-                "DOCX processing is deferred because the installed MinerU version "
-                "does not advertise reliable DOCX support."
-            ),
-        }
-        return self._unsupported_result(
+            input_path=input_path,
+        )
+        try:
+            normalized = processor.process(context)
+        except (InvalidDocxError, EmptyDocxError) as exc:
+            return self._failed_result(
+                document_id=record.document_id,
+                processor=processor.name,
+                input_path=input_path,
+                source_sha256=record.sha256,
+                error=f"DOCX processing failed: {exc}",
+            )
+        return self._completed_from_normalized(
             record,
-            processor="mineru",
-            error=messages.get(status, "DOCX processing is not supported."),
+            processor_name=processor.name,
+            input_path=input_path,
+            normalized=normalized,
         )
 
     def _ensure_eligible(self, record: DocumentRecord) -> None:
@@ -295,17 +322,16 @@ class DocumentProcessingService:
         return input_path
 
     def _read_output_bytes(self, output_path: Path) -> bytes:
-        from uniassist.persistence.appwrite_blob_store import AppwriteBlobStore
-        from uniassist.persistence.appwrite_paths import decode_blob_path
+        from uniassist.persistence.appwrite_paths import (
+            decode_blob_path,
+            is_remote_blob_path,
+        )
 
-        ref = decode_blob_path(output_path)
-        if ref.startswith("appwrite://"):
-            if isinstance(self._processing_store, object) and hasattr(
-                self._processing_store, "_artifact_store"
-            ):
-                store = getattr(self._processing_store, "_artifact_store")
-                if isinstance(store, AppwriteBlobStore):
-                    return store.read(ref)
+        if is_remote_blob_path(output_path):
+            reader = getattr(self._processing_store, "read_artifact", None)
+            if reader is None:
+                raise RuntimeError("processing store cannot read remote artifacts")
+            return reader(decode_blob_path(output_path))
         return output_path.read_bytes()
 
     def _save_completed(

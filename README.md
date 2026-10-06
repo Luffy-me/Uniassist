@@ -55,7 +55,7 @@ VERIFIED
 ACTIVE
 ```
 
-New uploads default to `draft` + `pending`. A document becomes `active` only through explicit activation (Phase 3 CLI: `activate`).
+New uploads default to `draft` + `pending`. A document becomes `active` only through explicit activation (CLI: `activate`; API: `POST /documents/{id}/activate` or `/publish`). Retire a document with `POST /documents/{id}/archive`, which also removes it from the search index.
 
 ## What is ScrapeAI?
 
@@ -104,6 +104,8 @@ Uniassist/
 | 11 | MAX integration | Not started |
 
 ## Getting started
+
+> **Windows:** activate the environment with `.venv\Scripts\activate` instead of `source .venv/bin/activate`. `scripts/start_uniassist.command` is a macOS (zsh) launcher; on other systems start the API and the bot in two terminals as described under "Groq + Telegram end-to-end".
 
 Requires Python 3.11 or newer.
 
@@ -167,7 +169,7 @@ python -m uniassist.processing.cli list
 |-------------|-----------|-------|
 | PDF | MinerU | Requires MinerU (Python 3.10-3.13). Set `MINERU_EXECUTABLE` to an isolated CLI when UniAssist uses Python 3.14+. |
 | TXT | TextProcessor | Direct UTF-8 extraction, no MinerU |
-| DOCX | Deferred | Unsupported until MinerU advertises reliable DOCX support |
+| DOCX | DocxTextProcessor | Built-in paragraph extraction (no MinerU needed); MinerU is used when it advertises DOCX support |
 
 For a Python 3.14 UniAssist environment, keep MinerU isolated and configure it
 without activating that environment for each run:
@@ -304,32 +306,36 @@ pytest tests/e2e/test_real_fastapi_e2e.py -v
 
 Phase 7 exposes UniAssist through a thin FastAPI application layer. Routes delegate to existing services — no business logic is duplicated in the API package.
 
-Start the development server:
+Start the development server (port 8001 is used everywhere in this README, including by the Telegram bot):
 
 ```bash
-uvicorn uniassist.api.app:create_app --factory --reload
+uvicorn uniassist.api.app:create_app --factory --port 8001 --reload
 ```
 
-Open interactive docs at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+Open interactive docs at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs).
+
+**Authentication.** `/health` and `/ask` are open. Every `/documents*` route and `/status` need the staff secret in an `X-Admin-Secret` header. Set it with `UNIASSIST_ADMIN_SECRET`. If the variable is empty, those routes only answer loopback clients that did not come through a proxy (no `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header), so always set it for any non-local deployment.
 
 **Endpoints**
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Simple health check |
-| GET | `/status` | Safe system status (no secrets) |
+| GET | `/status` | Safe system status (no secrets; staff secret required) |
 | POST | `/ask` | Grounded question answering |
 | POST | `/documents/upload` | Upload a document (multipart) |
-| GET | `/documents` | List documents (optional filters) |
+| GET | `/documents` | List documents (optional filters; staff secret required) |
 | GET | `/documents/{id}` | Document metadata + processing/index status |
 | POST | `/documents/{id}/activate` | Activate a draft document |
 | POST | `/documents/{id}/process` | Process an eligible document |
 | POST | `/documents/{id}/index` | Index an ACTIVE + VERIFIED document |
+| POST | `/documents/{id}/publish` | Activate, process and index in one step (rolled back on failure) |
+| POST | `/documents/{id}/archive` | Archive a document and remove it from the index |
 
 **Example — ask a question**
 
 ```bash
-curl -s http://127.0.0.1:8000/ask \
+curl -s http://127.0.0.1:8001/ask \
   -H 'Content-Type: application/json' \
   -d '{"question":"Can I take academic leave?"}'
 ```
@@ -337,10 +343,12 @@ curl -s http://127.0.0.1:8000/ask \
 **Example — upload a document**
 
 ```bash
-curl -s http://127.0.0.1:8000/documents/upload \
+curl -s http://127.0.0.1:8001/documents/upload \
+  -H "X-Admin-Secret: $UNIASSIST_ADMIN_SECRET" \
   -F file=@rules.txt \
   -F title="Student Rules" \
-  -F source="Admin upload"
+  -F source="Admin upload" \
+  -F source_url="https://example.org/rules"
 ```
 
 **Environment variables**
@@ -350,7 +358,13 @@ curl -s http://127.0.0.1:8000/documents/upload \
 | `UNIASSIST_PROJECT_ROOT` | Project root containing `data/` (default: current directory) |
 | `UNIASSIST_CORS_ORIGINS` | Comma-separated CORS allowlist (empty = disabled) |
 | `UNIASSIST_MAX_QUESTION_LENGTH` | Maximum `/ask` question length (default: 2000) |
+| `UNIASSIST_ADMIN_SECRET` | Staff secret for `/documents*` and `/status` (see Authentication above) |
+| `UNIASSIST_STORAGE_BACKEND` | `local` (default) or `appwrite` |
+| `UNIASSIST_DATA_DIR` | Data directory override (default: `<project root>/data`) |
+| `UNIASSIST_LLM_VERIFY` | `1` to require the chat model to confirm every answer after the local claim checks (extra Groq call per question; default off) |
 | `GROQ_API_KEY` | Required for live Groq answers |
+| `GROQ_CHAT_MODEL` | Chat model (default: `openai/gpt-oss-20b`) |
+| `GROQ_TIMEOUT_SECONDS` | Per-request timeout (default: 60) |
 
 CORS is **not** enabled by default. Set `UNIASSIST_CORS_ORIGINS` explicitly for local frontends.
 
@@ -454,17 +468,18 @@ UNIASSIST_RUN_GROQ_INTEGRATION=1 pytest tests/e2e/test_real_fastapi_e2e.py -v
 UNIASSIST_RUN_TELEGRAM_INTEGRATION=1 pytest tests/telegram/test_telegram_integration.py -v
 ```
 
-Both skip automatically when the required services or credentials are unavailable.
+Both skip automatically when the required services or credentials are unavailable. The default suite skips 13 live-service tests (Groq, Appwrite, Telegram, MinerU).
 
-### Phase 10 — End-to-end validation
+### Testing and validation
 
-Phase 10 adds offline-safe test hardening plus optional **real** Groq/FastAPI validation.
+Offline-safe test hardening plus optional **real** Groq/FastAPI validation.
 
 **Default suite (offline, no external services):**
 
 ```bash
+pip install -e ".[dev,scrapeai,telegram,appwrite]"
 python -m pytest -v
-ruff check src tests
+ruff check src tests scripts
 ```
 
 Must show **0 failures** without Groq, Telegram, internet, MinerU, or live ScrapeAI.
@@ -625,3 +640,19 @@ ruff check src tests
 ## License
 
 Not yet specified.
+
+## Known limitations
+
+- Retrieval embeddings are a local **hash-based** vector (128 dimensions), combined with keyword overlap. It does not match meaning across languages, so a question in English will not reliably retrieve Russian text. See `AUDIT_REPORT.md` for the full analysis.
+- No deployment files are included (no Dockerfile or service unit).
+- Question text, retrieved chunks and answers are not stored; only question hashes appear in logs.
+
+## Reproducing results
+
+_Placeholder: to be completed once the evaluation harness exists._ This section will document:
+
+1. the exact Python version and the lockfile used to build the environment,
+2. the corpus snapshot (document hashes and the ingestion manifest),
+3. the pipeline configuration (chunking, embedding model, retriever, thresholds, prompts) and its hash,
+4. the evaluation dataset and the command that runs it,
+5. the model name and version used for generation, with the date of the run.

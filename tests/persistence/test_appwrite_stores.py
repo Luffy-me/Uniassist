@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from appwrite.exception import AppwriteException
 
 import uniassist.persistence.appwrite_vector_store as vector_store_module
 from uniassist.documents.models import (
@@ -45,7 +46,7 @@ def appwrite_clients() -> AppwriteClients:
     def _get_file(bucket_id: str, file_id: str) -> dict:
         if file_id in uploaded:
             return {"$id": file_id}
-        raise Exception("missing")
+        raise AppwriteException("missing", code=404)
 
     def _create_file(bucket_id: str, file_id: str, file: object) -> dict:
         uploaded.add(file_id)
@@ -55,7 +56,7 @@ def appwrite_clients() -> AppwriteClients:
     storage.create_file.side_effect = _create_file
     storage.get_file_download.return_value = b"hello"
     databases.list_documents.return_value = {"documents": []}
-    databases.get_document.side_effect = Exception("not found")
+    databases.get_document.side_effect = AppwriteException("not found", code=404)
     return AppwriteClients(databases=databases, storage=storage, config=config)
 
 

@@ -7,6 +7,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+MAX_SESSIONS = 10_000
+
 
 @dataclass(frozen=True)
 class UserSession:
@@ -41,6 +43,11 @@ class SessionStore:
                 updated_at=datetime.now(UTC),
             )
             self._sessions[telegram_user_id] = session
+            if len(self._sessions) > MAX_SESSIONS:
+                oldest = min(
+                    self._sessions.values(), key=lambda item: item.updated_at
+                )
+                del self._sessions[oldest.telegram_user_id]
             return session
 
     async def get(self, telegram_user_id: int) -> UserSession | None:

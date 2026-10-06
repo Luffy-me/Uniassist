@@ -8,6 +8,8 @@ from collections import defaultdict, deque
 
 from uniassist.telegram.errors import RateLimitExceededError
 
+_EVICT_THRESHOLD = 1000
+
 
 class InMemoryRateLimiter:
     """Per-user sliding-window rate limiter suitable for single-process deployment."""
@@ -24,12 +26,25 @@ class InMemoryRateLimiter:
         now = time.monotonic()
         window_start = now - 60.0
         async with self._lock:
+            self._evict_idle(window_start)
             events = self._events[user_id]
             while events and events[0] < window_start:
                 events.popleft()
             if len(events) >= self._limit:
                 raise RateLimitExceededError
             events.append(now)
+
+    def _evict_idle(self, window_start: float) -> None:
+        """Forget users whose last request is outside the window."""
+        if len(self._events) < _EVICT_THRESHOLD:
+            return
+        idle = [
+            user_id
+            for user_id, events in self._events.items()
+            if not events or events[-1] < window_start
+        ]
+        for user_id in idle:
+            del self._events[user_id]
 
     def reset(self) -> None:
         """Clear all tracked events (for tests)."""

@@ -91,3 +91,12 @@ def test_downloader_handles_http_failure(tmp_path: Path) -> None:
     assert result.success is False
     assert result.metadata is None
     assert result.error is not None
+
+
+def test_malformed_content_length_is_ignored() -> None:
+    from uniassist.scrapeai.downloader import _parse_content_length
+
+    assert _parse_content_length("abc") is None
+    assert _parse_content_length("-5") is None
+    assert _parse_content_length(" 42 ") == 42
+    assert _parse_content_length(None) is None

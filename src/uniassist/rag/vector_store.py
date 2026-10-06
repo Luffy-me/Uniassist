@@ -30,6 +30,7 @@ class VectorStore:
     def __init__(self) -> None:
         self._chunks: dict[str, Chunk] = {}
         self._vectors: dict[str, list[float]] = {}
+        self._norms: dict[str, float] = {}
 
     def add(self, chunk: Chunk, vector: list[float]) -> None:
         """Add or replace a chunk embedding."""
@@ -45,11 +46,13 @@ class VectorStore:
                 )
         self._chunks[chunk.chunk_id] = chunk
         self._vectors[chunk.chunk_id] = list(vector)
+        self._norms[chunk.chunk_id] = _norm(vector)
 
     def delete(self, chunk_id: str) -> None:
         """Remove a chunk from the index."""
         self._chunks.pop(chunk_id, None)
         self._vectors.pop(chunk_id, None)
+        self._norms.pop(chunk_id, None)
 
     def delete_document(self, document_id: str) -> int:
         """Remove all chunks belonging to a document."""
@@ -81,6 +84,7 @@ class VectorStore:
         if not self._vectors:
             return []
 
+        query_norm = _norm(query_embedding)
         scored: list[tuple[float, Chunk]] = []
         for chunk_id, vector in self._vectors.items():
             chunk = self._chunks[chunk_id]
@@ -89,7 +93,9 @@ class VectorStore:
                 and chunk.document_id not in allowed_document_ids
             ):
                 continue
-            score = cosine_similarity(query_embedding, vector)
+            score = _cosine_with_norms(
+                query_embedding, vector, query_norm, self._norms[chunk_id]
+            )
             if score < min_score:
                 continue
             scored.append((score, chunk))
@@ -122,6 +128,7 @@ class VectorStore:
         """Remove all chunks and vectors."""
         self._chunks.clear()
         self._vectors.clear()
+        self._norms.clear()
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +170,27 @@ class JsonVectorStore(VectorStore):
         loaded = VectorStore.from_dict(data)
         self._chunks = loaded._chunks
         self._vectors = loaded._vectors
+        self._norms = loaded._norms
+
+
+def _norm(vector: list[float]) -> float:
+    return math.sqrt(sum(value * value for value in vector))
+
+
+def _cosine_with_norms(
+    left: list[float],
+    right: list[float],
+    left_norm: float,
+    right_norm: float,
+) -> float:
+    if len(left) != len(right):
+        raise VectorDimensionError(
+            f"dimension mismatch: {len(left)} vs {len(right)}"
+        )
+    if not left or left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    return dot / (left_norm * right_norm)
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:

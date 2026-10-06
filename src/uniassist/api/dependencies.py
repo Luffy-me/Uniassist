@@ -26,6 +26,8 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9\-]{8,64}$")
 
 
 ADMIN_SECRET_HEADER = "X-Admin-Secret"
+_PROXY_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip")
+_LOCAL_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 
 
 @dataclass
@@ -95,7 +97,7 @@ def build_services(
     )
     resolved_pipeline = pipeline or AnswerPipeline.from_indexing(indexing, root)
     if pipeline is not None:
-        shared_indexing = resolved_pipeline._generation._retriever._indexing_service  # noqa: SLF001
+        shared_indexing = resolved_pipeline.indexing_service
         if shared_indexing is not None:
             indexing = shared_indexing
     return AppServices(
@@ -122,10 +124,19 @@ def require_admin(
     request: Request,
     services: AppServices = Depends(get_services),
 ) -> None:
-    """Require the staff secret on mutating document routes when configured."""
+    """Require the staff secret on document and status routes.
+
+    With no secret configured the routes are only reachable from the local
+    machine, so a forgotten ``UNIASSIST_ADMIN_SECRET`` fails closed for
+    remote clients instead of exposing the corpus.
+    """
     secret = services.settings.admin_secret
     if not secret:
-        return
+        client = request.client.host if request.client else ""
+        proxied = any(name in request.headers for name in _PROXY_HEADERS)
+        if client in _LOCAL_CLIENTS and not proxied:
+            return
+        raise UnauthorizedError("admin authentication is not configured")
     provided = request.headers.get(ADMIN_SECRET_HEADER, "")
     if not _secrets_match(provided, secret):
         raise UnauthorizedError("admin authentication required")

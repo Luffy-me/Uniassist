@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import time
+import logging
+import os
 from pathlib import Path
 
 from uniassist.ai.generation import (
@@ -10,10 +11,12 @@ from uniassist.ai.generation import (
     GenerationFailure,
 )
 from uniassist.ai.models import (
-    PipelineTimings,
+    CandidateAnswer,
+    EvidenceItem,
     Question,
     RefusalAnswer,
     RefusalReason,
+    VerificationResult,
     VerifiedAnswer,
 )
 from uniassist.ai.providers.base import LLMProvider
@@ -22,6 +25,8 @@ from uniassist.ai.verification import VerificationEngine
 from uniassist.documents.store import JsonDocumentStore
 from uniassist.rag.indexing import IndexingService
 from uniassist.rag.retrieval import Retriever
+
+logger = logging.getLogger("uniassist.ai.pipeline")
 
 
 class AnswerPipeline:
@@ -32,10 +37,15 @@ class AnswerPipeline:
         generation_service: AnswerGenerationService,
         verification_engine: VerificationEngine,
         provider: LLMProvider,
+        *,
+        llm_verification: bool | None = None,
     ) -> None:
         self._generation = generation_service
         self._verification = verification_engine
         self._provider = provider
+        if llm_verification is None:
+            llm_verification = _env_flag("UNIASSIST_LLM_VERIFY")
+        self._llm_verification = llm_verification
 
     @classmethod
     def from_indexing(
@@ -75,8 +85,33 @@ class AnswerPipeline:
         verification = VerificationEngine(document_store)
         return cls(generation, verification, resolved_provider)
 
+    @property
+    def indexing_service(self) -> IndexingService | None:
+        return self._generation.retriever.indexing_service
+
+    def _second_opinion(
+        self,
+        question: Question,
+        candidate: CandidateAnswer,
+        evidence: list[EvidenceItem],
+        verification: VerificationResult,
+    ) -> VerificationResult:
+        """Optionally require the LLM verifier to agree with the local checks."""
+        if not self._llm_verification:
+            return verification
+        try:
+            llm_result = self._provider.verify_answer(question, candidate, evidence)
+        except Exception:  # fail closed: an unreachable verifier means no answer
+            logger.exception("llm_verification_failed")
+            return _failure_result(
+                RefusalReason.VERIFICATION_FAILURE,
+                "The independent verification step could not be completed.",
+            )
+        if llm_result.verified:
+            return verification
+        return llm_result
+
     def ask(self, question_text: str) -> VerifiedAnswer | RefusalAnswer:
-        total_started = time.perf_counter()
         generated = self._generation.generate(question_text)
         if isinstance(generated, GenerationFailure):
             return RefusalAnswer(
@@ -92,12 +127,15 @@ class AnswerPipeline:
         candidate = generated.candidate
         question = Question(text=question_text.strip())
         evidence = list(candidate.evidence)
-        verify_started = time.perf_counter()
         verification = self._verification.verify(question, candidate, evidence)
-        verification_latency_ms = (time.perf_counter() - verify_started) * 1000
 
         if generated.potentially_conflicting and verification.verified:
             verification = _mark_contradictory(verification)
+
+        if verification.verified:
+            verification = self._second_opinion(
+                question, candidate, evidence, verification
+            )
 
         if not verification.verified:
             repaired = self._verification.repair_candidate(candidate, verification)
@@ -107,6 +145,10 @@ class AnswerPipeline:
                     repaired,
                     evidence,
                 )
+                if repaired_verification.verified:
+                    repaired_verification = self._second_opinion(
+                        question, repaired, evidence, repaired_verification
+                    )
                 if repaired_verification.verified:
                     citations = self._verification.build_citations(repaired, evidence)
                     return VerifiedAnswer(
@@ -129,13 +171,6 @@ class AnswerPipeline:
             )
 
         citations = self._verification.build_citations(candidate, evidence)
-        timings = PipelineTimings(
-            retrieval_latency_ms=generated.retrieval_latency_ms,
-            generation_latency_ms=0.0,
-            verification_latency_ms=verification_latency_ms,
-            total_latency_ms=(time.perf_counter() - total_started) * 1000,
-        )
-        del timings
         return VerifiedAnswer(
             answer_text=candidate.answer_text,
             citations=citations,
@@ -143,6 +178,10 @@ class AnswerPipeline:
             model=candidate.model,
             generated_at=candidate.generated_at,
         )
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _default_provider() -> LLMProvider:

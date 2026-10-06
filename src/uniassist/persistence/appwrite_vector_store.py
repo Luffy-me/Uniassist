@@ -10,6 +10,8 @@ from appwrite.query import Query
 from uniassist.persistence.appwrite_client import AppwriteClients
 from uniassist.persistence.appwrite_sdk_adapter import (
     appwrite_row_id,
+    is_conflict,
+    is_not_found,
     iter_collection_documents,
     sanitize_payload,
 )
@@ -41,8 +43,9 @@ class AppwriteVectorStore(VectorStore):
                 collection_id=self._config.chunks_collection_id,
                 document_id=appwrite_row_id(chunk_id),
             )
-        except Exception:
-            return
+        except Exception as exc:
+            if not is_not_found(exc):
+                raise
 
     def delete_document(self, document_id: str) -> int:
         removed = 0
@@ -70,8 +73,10 @@ class AppwriteVectorStore(VectorStore):
                         collection_id=self._config.chunks_collection_id,
                         document_id=appwrite_row_id(chunk_id),
                     )
-                except Exception:
-                    continue
+                except Exception as exc:
+                    if is_not_found(exc):
+                        continue
+                    raise
                 remaining.append(chunk_id)
             if not remaining:
                 return
@@ -103,7 +108,9 @@ class AppwriteVectorStore(VectorStore):
                 document_id=appwrite_row_id(chunk.chunk_id),
                 data=payload,
             )
-        except Exception:
+        except Exception as exc:
+            if not is_conflict(exc):
+                raise
             self._clients.databases.update_document(
                 database_id=self._config.database_id,
                 collection_id=self._config.chunks_collection_id,

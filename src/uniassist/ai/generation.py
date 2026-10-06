@@ -54,6 +54,10 @@ class AnswerGenerationService:
         self._provider = provider
         self._top_k = top_k
 
+    @property
+    def retriever(self) -> Retriever:
+        return self._retriever
+
     def generate(
         self,
         question_text: str,
@@ -69,14 +73,10 @@ class AnswerGenerationService:
             question.text,
             top_k=self._top_k,
         )
-        records = {}
-        indexing_service = self._retriever._indexing_service  # noqa: SLF001
-        if indexing_service is not None:
-            records = {
-                record.document_id: record
-                for record in indexing_service.document_store.list_records()
-            }
-        evidence = evidence_from_retrieved(retrieval.chunks, records=records)
+        evidence = evidence_from_retrieved(
+            retrieval.chunks,
+            records=retrieval.records,
+        )
         if not evidence:
             return GenerationFailure(
                 reason=RefusalReason.NO_RELEVANT_EVIDENCE,
@@ -146,11 +146,12 @@ class AnswerGenerationService:
 
 
 def _embedding_model(retriever: Retriever) -> str | None:
-    info = getattr(retriever._embedding_provider, "info", None)  # noqa: SLF001
+    provider = retriever.embedding_provider
+    info = getattr(provider, "info", None)
     if info is not None:
         return info.model_name
-    return getattr(retriever._embedding_provider, "provider_name", None)  # noqa: SLF001
+    return getattr(provider, "provider_name", None)
 
 
 def _embedding_dimension(retriever: Retriever) -> int | None:
-    return getattr(retriever._embedding_provider, "dimension", None)  # noqa: SLF001
+    return getattr(retriever.embedding_provider, "dimension", None)

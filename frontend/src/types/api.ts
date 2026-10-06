@@ -93,7 +93,7 @@ export interface UploadDocumentInput {
   file: File;
   title: string;
   source: string;
-  source_url?: string;
+  source_url: string;
   version?: string;
   effective_date?: string;
   notes?: string;

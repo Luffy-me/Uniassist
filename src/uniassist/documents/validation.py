@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,11 +42,22 @@ def detect_content_type(filename: str, content: bytes) -> str | None:
 
     if extension == ".pdf" and content.startswith(b"%PDF"):
         return ALLOWED_EXTENSIONS[".pdf"]
-    if extension == ".docx" and content.startswith(b"PK"):
+    if extension == ".docx" and _looks_like_docx(content):
         return ALLOWED_EXTENSIONS[".docx"]
     if extension == ".txt":
         return ALLOWED_EXTENSIONS[".txt"]
     return ALLOWED_EXTENSIONS.get(extension)
+
+
+def _looks_like_docx(content: bytes) -> bool:
+    """A DOCX is a zip archive containing ``word/document.xml``."""
+    if not content.startswith(b"PK"):
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            return "word/document.xml" in archive.namelist()
+    except zipfile.BadZipFile:
+        return False
 
 
 def validate_upload(
